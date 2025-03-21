@@ -1,0 +1,26 @@
+name: Create Pre-release Build
+
+on:
+  push:
+    branches-ignore:
+      - main
+
+jobs:
+  build:
+    uses: bridgebase/benapi/.github/workflows/build.yml@main
+    with:
+      aws_role_to_assume: arn:aws:iam::121865241516:role/github-actions-permissions
+    secrets:
+      PRIVATE_SSH_KEY: ${{ secrets.PRIVATE_SSH_KEY }}
+      CLAIMER_PRIVATE_SSH_KEY: ${{ secrets.CLAIMER_PRIVATE_SSH_KEY }}
+
+  deploy:
+    needs: [ build ]
+    uses: bridgebase/benapi/.github/workflows/octopus-deploy.yml@main
+    secrets:
+      OCTOPUS_API_KEY: ${{ secrets.OCTOPUS_API_KEY }}
+      OCTOPUS_HOST: ${{ secrets.OCTOPUS_HOST }}
+      OCTOPUS_SPACE: ${{ secrets.OCTOPUS_SPACE }}
+    with:
+      version: ${{ needs.build.outputs.version }}
+      channel: 'Pre-release'

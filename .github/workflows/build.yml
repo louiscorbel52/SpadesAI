@@ -1,0 +1,79 @@
+name: Build
+
+on:
+  workflow_call:
+    inputs:
+      aws_role_to_assume:
+        required: true
+        type: string
+    secrets:
+      PRIVATE_SSH_KEY:
+        required: true
+      CLAIMER_PRIVATE_SSH_KEY:
+        required: true
+    outputs:
+      version:
+        value: ${{ jobs.build.outputs.version }}
+
+permissions:
+  id-token: write
+  packages: write
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.set-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup SSH key for gib/claimer repositories
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: |
+            ${{ secrets.PRIVATE_SSH_KEY }}
+            ${{ secrets.CLAIMER_PRIVATE_SSH_KEY }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Set current version
+        id: set-version
+        run: |
+          echo "VERSION=$(node -p 'require("./package.json").version')" >> $GITHUB_ENV
+          echo "VERSION=$(node -p 'require("./package.json").version')" >> $GITHUB_OUTPUT
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.aws_role_to_assume }}
+          aws-region: us-east-1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      # - https://github.com/marketplace/actions/webfactory-ssh-agent#using-multiple-deploy-keys-inside-docker-builds
+      - name: Collect Git and SSH config files in a directory that is part of the Docker build context
+        run: |
+          mkdir root-config
+          cp -r ~/.gitconfig ~/.ssh root-config/
+          sed 's:/home/[[:alnum:]-]\+/:/root/:g' -i.bak root-config/.ssh/config
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build, tag, and push docker images
+        env:
+          REGISTRY: ghcr.io/${{ github.repository }}
+          IMAGE_TAG: ${{ env.VERSION }}
+          DOCKER_BUILDKIT: 1
+        run: |
+          docker build --ssh default -t $REGISTRY/app:$IMAGE_TAG .
+          
+          docker push $REGISTRY/app:$IMAGE_TAG

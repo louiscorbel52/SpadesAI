@@ -1,0 +1,50 @@
+name: Octopus Deploy Reporter
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      channel:
+        required: false
+        type: string
+    secrets:
+      OCTOPUS_API_KEY:
+        required: true
+      OCTOPUS_HOST:
+        required: true
+      OCTOPUS_SPACE:
+        required: true
+
+env:
+  OCTOPUS_PROJECT_NAME: ben
+
+jobs:
+  octopus:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Octopus CLI 🐙
+        uses: OctopusDeploy/install-octopus-cli-action@v1
+        with:
+          version: latest
+
+      - name: Push build information to Octopus Deploy 🐙
+        uses: OctopusDeploy/push-build-information-action@v3
+        with:
+          packages: ${{ github.repository }}/app
+          version: ${{ inputs.version }}
+          server: ${{ secrets.OCTOPUS_HOST }}
+          api_key: ${{ secrets.OCTOPUS_API_KEY }}
+          space: ${{ secrets.OCTOPUS_SPACE }}
+
+      - name: Create a release in Octopus Deploy 🐙
+        uses: OctopusDeploy/create-release-action@v3
+        with:
+          project: ${{ env.OCTOPUS_PROJECT_NAME }}
+          release_number: ${{ inputs.version }}
+          package_version: ${{ inputs.version }}
+          channel: ${{ inputs.channel }}
+          api_key: ${{ secrets.OCTOPUS_API_KEY }}
+          server: ${{ secrets.OCTOPUS_HOST }}
+          space: ${{ secrets.OCTOPUS_SPACE }}

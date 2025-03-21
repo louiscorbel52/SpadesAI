@@ -1,0 +1,7 @@
+__pycache__
+*.so
+
+###> npm ###
+node_modules/
+package-lock.json
+###< npm ###

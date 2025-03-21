@@ -1,0 +1,31 @@
+name: Update Release
+
+on:
+  push: 
+    branches:
+      - main
+
+jobs:
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+    steps:
+      - name: Create Release
+        uses: google-github-actions/release-please-action@v3
+        id: release
+        with:
+          release-type: node
+          package-name: release-please-action
+
+  create-release-build:
+    needs: [release-please]
+    if: ${{ needs.release-please.outputs.release_created }}
+    uses: bridgebase/benapi/.github/workflows/create-release-build.yml@main
+    secrets:
+      PRIVATE_SSH_KEY: ${{ secrets.PRIVATE_SSH_KEY }}
+      OCTOPUS_API_KEY: ${{ secrets.OCTOPUS_API_KEY }}
+      OCTOPUS_HOST: ${{ secrets.OCTOPUS_HOST }}
+      OCTOPUS_SPACE: ${{ secrets.OCTOPUS_SPACE }}
+      CLAIMER_PRIVATE_SSH_KEY: ${{ secrets.CLAIMER_PRIVATE_SSH_KEY }}

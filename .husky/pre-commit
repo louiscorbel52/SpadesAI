@@ -1,0 +1,11 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+if [ "$(git rev-parse --abbrev-ref HEAD)" = 'main' ]; then
+  echo "$(tput setaf 3)Pre-commit: Working branch is 'main'. A new version number will not be generated! $(tput sgr0)"
+else
+  echo "$(tput setaf 2)Pre-commit: Generating pre-release version...$(tput sgr0)"
+
+  docker run -i --rm -u $(id -u):$(id -g) -v "$PWD":/app -w /app node npm version --commit-hooks false --git-tag-version false prerelease --preid=$(git rev-parse --abbrev-ref HEAD)
+  git add package.json
+fi

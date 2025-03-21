@@ -1,0 +1,36 @@
+name: Create Release Build
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    secrets:
+      PRIVATE_SSH_KEY:
+        required: true
+      OCTOPUS_API_KEY:
+        required: true
+      OCTOPUS_HOST:
+        required: true
+      OCTOPUS_SPACE:
+        required: true
+      CLAIMER_PRIVATE_SSH_KEY:
+        required: true
+
+jobs:
+  build:
+    uses: bridgebase/benapi/.github/workflows/build.yml@main
+    with:
+      aws_role_to_assume: arn:aws:iam::504185078515:role/github-actions-permissions
+    secrets:
+      PRIVATE_SSH_KEY: ${{ secrets.PRIVATE_SSH_KEY }}
+      CLAIMER_PRIVATE_SSH_KEY: ${{ secrets.CLAIMER_PRIVATE_SSH_KEY }}
+
+  deploy:
+    needs: [ build ]
+    uses: bridgebase/benapi/.github/workflows/octopus-deploy.yml@main
+    secrets:
+      OCTOPUS_API_KEY: ${{ secrets.OCTOPUS_API_KEY }}
+      OCTOPUS_HOST: ${{ secrets.OCTOPUS_HOST }}
+      OCTOPUS_SPACE: ${{ secrets.OCTOPUS_SPACE }}
+    with:
+      version: ${{ needs.build.outputs.version }}
+      channel: 'Release'
