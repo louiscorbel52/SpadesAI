@@ -6,16 +6,15 @@ def parse_history(dealer, history):
     play = []
     moves = []
     if history:
-        moves = history.strip().upper().replace('P', 'PASS').split('-')
-        d2x = {'D': 'X', 'R': 'XX'}
-        moves = [d2x.get(m, m) for m in moves]
+        moves = history.strip().upper().split('-')
 
     is_play = False
     for move in moves:
         if is_play:
             play.append(move)
         else:
-            auction.append(move)
+            if move.isdigit() and 0 <= int(move) <= 13:
+                auction.append(move)
             if bidding.auction_over(auction):
                 is_play = True
 
@@ -33,11 +32,11 @@ def to_bbo_hand(hand):
     suits = hand.split('.')
     return f's{suits[0]}h{suits[1]}d{suits[2]}c{suits[3]}'
 
-def to_bbo_handviewer(vuln, hands_str_nesw, auction_padded, cards_played):
+def to_bbo_handviewer(hands_str_nesw, auction_padded, cards_played):
     dealer = 'NESW'[bidding.get_dealer_i(auction_padded)]
-    auction_bbo = '-'.join(auction_padded).replace('PASS', 'P').replace('PAD_START', '').replace('XX', 'R').replace('X', 'D').replace('-', '')
+    auction_bbo = '-'.join(auction_padded).replace('PASS', 'P').replace('PAD_START', '').replace('-', '')
     h_bbo = [to_bbo_hand(hand) for hand in hands_str_nesw]
-    return f'https://www.bridgebase.com/tools/handviewer.html?d={dealer}&v={vuln}&a={auction_bbo}&n={h_bbo[0]}&e={h_bbo[1]}&s={h_bbo[2]}&w={h_bbo[3]}&p={"".join(cards_played)}'
+    return f'https://www.bridgebase.com/tools/handviewer.html?d={dealer}&a={auction_bbo}&n={h_bbo[0]}&e={h_bbo[1]}&s={h_bbo[2]}&w={h_bbo[3]}&p={"".join(cards_played)}'
 
 def from_bbo_hand(bbo_hand):
     '''
@@ -57,7 +56,7 @@ SUIT_MASK = np.array([
     [0] * 39 + [1] * 13,
 ], dtype=np.int32)
 
-def follow_suit(cards_softmax, own_cards, trick_suit):
+def follow_suit(cards_softmax, own_cards, trick_suit, spades_broken, n_trick_cards):
     assert cards_softmax.shape[1] == 52
     assert own_cards.shape[1] == 52
     assert trick_suit.shape[1] == 4
@@ -72,6 +71,10 @@ def follow_suit(cards_softmax, own_cards, trick_suit):
     has_cards_of_suit = np.sum(mask * SUIT_MASK[trick_suit_i], axis=1) > 0
 
     mask[suit_defined & has_cards_of_suit] *= SUIT_MASK[trick_suit_i[suit_defined & has_cards_of_suit]]
+
+    # If spades are not broken and it's the first card of the trick, spades cannot be played
+    if not spades_broken and n_trick_cards == 0:
+        mask[:, 39:52] = 0  # Spades are in the range 39-51
 
     legal_cards_softmax = cards_softmax * mask
 
@@ -124,7 +127,7 @@ def normalize_hands(samples):
     return hands_norm
 
 
-def eval_position(poseval_model, samples, on_play_i, decl_i, strain_i):
+def eval_position(poseval_model, samples, on_play_i):
     n_samples = samples.shape[0]
     n_cards = int(samples[0, 0].sum())
     X = np.zeros((n_samples, 4*32 + 4 + 5 + 4 + 14), dtype=np.uint8)
@@ -134,16 +137,8 @@ def eval_position(poseval_model, samples, on_play_i, decl_i, strain_i):
     
     hands_norm_32 = hands_bin_52_to_32(hands_norm)
 
-    if isinstance(decl_i, int):
-        X[:, 4*32 + decl_i] = 1  # one-hot declarer NESW
-        X[:, 4*32 + 4 + strain_i] = 1  # one-hot strain NSHDC
-        X[:, 4*32 + 4 + 5 + on_play_i] = 1  # one-hot who is on lead NESW
-        X[:, 4*32 + 4 + 5 + 4 + n_cards] = 1  # one-hot max possible trick number available now
-    else:
-        X[s_all, 4 * 32 + decl_i] = 1
-        X[s_all, 4*32 + 4 + strain_i] = 1  # one-hot strain NSHDC
-        X[s_all, 4*32 + 4 + 5 + on_play_i] = 1  # one-hot who is on lead NESW
-        X[s_all, 4*32 + 4 + 5 + 4 + n_cards] = 1  # one-hot max possible trick number available now
+    X[:, 4*32 + 4 + 5 + on_play_i] = 1  # one-hot who is on lead NESW
+    X[:, 4*32 + 4 + 5 + 4 + n_cards] = 1  # one-hot max possible trick number available now
 
     X[:, :32] = hands_norm_32[:,0]
     X[:, 32:64] = hands_norm_32[:,1]

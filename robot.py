@@ -25,18 +25,18 @@ class Player:
         self.dd_analysis = dd_analysis
         self.n_samples = n_samples
         self.claim_info = None
+        self.spades_broken = False  # Track if spades are broken
 
-    def play(self, vuln_ns_ew, hands_bin_nesw, auction_padded, played_cards, sc):
+    def play(self, hands_bin_nesw, auction_padded, played_cards):
         self.claim_info = None
         assert len(played_cards) > 0
 
         np.random.seed(1337)
 
-        contract = bidding.get_contract(auction_padded)
-        strain_i = bidding.get_strain_i(contract)
-        decl_i = bidding.get_decl_i(contract)
+        # Ensure auction_padded only contains valid bids
+        auction_padded = [bid for bid in auction_padded if bid.isdigit() and 0 <= int(bid) <= 13]
 
-        searcher = Searcher(self.models.peekplay, self.models.poseval, decl_i, strain_i)
+        searcher = Searcher(self.models.peekplay, self.models.poseval)
         
         (
             tricks, 
@@ -48,24 +48,25 @@ class Player:
             shown_out_suits
         ) = step_through_cardplay(auction_padded, played_cards)
 
+        # Check if spades are broken
+        for trick in tricks:
+            if any(card // 13 == 3 for card in trick):
+                self.spades_broken = True
+
         n_tricks_def_decl = [0, 0]
-        n_tricks_def_decl[0] = len([twin for twin in trick_winners if twin % 2 != decl_i % 2])
-        n_tricks_def_decl[1] = len([twin for twin in trick_winners if twin % 2 == decl_i % 2])
+        n_tricks_def_decl[0] = len([twin for twin in trick_winners if twin % 2 != on_play_i % 2])
+        n_tricks_def_decl[1] = len([twin for twin in trick_winners if twin % 2 == on_play_i % 2])
         print(n_tricks_def_decl)
 
         hand_bin = hands_bin_nesw[on_play_i] # this is the hand on play
-        dummy_i = (decl_i + 2) % 4
-        if dummy_i == on_play_i:
-            dummy_i = decl_i
 
         cards_own = binary.get_cards_from_binary_hand(hand_bin.reshape(52))
-        cards_dummy = binary.get_cards_from_binary_hand(hands_bin_nesw[dummy_i].reshape(52))
 
         hidden_cards = list(
-            set(range(52)) - set(cards_own) - set(cards_dummy) - set(functools.reduce(operator.add, cards_played_by))
+            set(range(52)) - set(cards_own) - set(functools.reduce(operator.add, cards_played_by))
         )
 
-        h_1_nesw, h_2_nesw = get_h1_h2_nesw(decl_i, on_play_i)
+        h_1_nesw, h_2_nesw = get_h1_h2_nesw(on_play_i)
 
         samples_bid_batches = []
         for _ in range(self.n_samples // 16):
@@ -74,7 +75,6 @@ class Player:
                 binfo=self.models.binfo,
                 auction_padded=auction_padded,
                 hand=hand_bin,
-                vuln_ns_ew=vuln_ns_ew,
                 known_nesw=on_play_i,
                 h_1_nesw=h_1_nesw,
                 h_2_nesw=h_2_nesw,
@@ -85,7 +85,6 @@ class Player:
 
             samples = np.zeros((h1_h2.shape[0], 4, 52), dtype=np.uint8)
             samples[:,on_play_i,:] = hand_bin
-            samples[:,dummy_i,:] = hands_bin_nesw[dummy_i]
             samples[:,h_1_nesw,:] = h1_h2[:,0,:]
             samples[:,h_2_nesw,:] = h1_h2[:,1,:]
 
@@ -94,7 +93,6 @@ class Player:
                 h_1_nesw=h_1_nesw,
                 h_2_nesw=h_2_nesw,
                 auction_padded=auction_padded,
-                vuln_ns_ew=vuln_ns_ew,
                 bidder_model=self.models.bidder_model
             )
             samples_bid_batches.append(samples_bid_batch)
@@ -105,7 +103,7 @@ class Player:
 
         n_dd_samples = self.n_samples
 
-        weights = self.accept_samples_play(samples_bid[:n_dd_samples], (h_1_nesw, h_2_nesw), played_cards, decl_i, strain_i)
+        weights = self.accept_samples_play(samples_bid[:n_dd_samples], (h_1_nesw, h_2_nesw), played_cards)
         weights_play = weights / weights.sum()
 
         # remove played cards
@@ -116,13 +114,13 @@ class Player:
         for i, card in enumerate(current_trick):
             trick_np[:,i] = card 
 
-        p_peek = play_next_card(self.models.peekplay, samples_bid[:n_dd_samples], current_trick, on_play_i, strain_i)
+        p_peek = play_next_card(self.models.peekplay, samples_bid[:n_dd_samples], current_trick, on_play_i, self.spades_broken)
         peek_scores = np.mean(p_peek, axis=0)
 
         trick_suit = np.zeros((1, 4), dtype=np.uint8)
         if current_trick:
             trick_suit[0, current_trick[0] // 13] = 1
-        p_card = follow_suit(peek_scores.reshape((1, -1)), samples_bid[0, on_play_i].reshape((1, 52)), trick_suit)
+        p_card = follow_suit(peek_scores.reshape((1, -1)), samples_bid[0, on_play_i].reshape((1, 52)), trick_suit, self.spades_broken, len(current_trick))
         candidates = [(p_card[0, c], c) for c in np.nonzero(p_card[0])[0] if p_card[0, c] >= 0.01]  # TODO: magic number
         if not candidates:
             candidates = [(p_card[0, c], c) for c in np.nonzero(p_card[0])[0]]
@@ -133,7 +131,7 @@ class Player:
         card = peek_card
 
         is_maximizer = False
-        if (on_play_i % 2) == (decl_i % 2):
+        if (on_play_i % 2) == (on_play_i % 2):
             is_maximizer = True
 
         search_scores = {}
@@ -155,9 +153,8 @@ class Player:
             sorted_cards = []
             for c, vals in search_results.items():
                 e_tricks = n_tricks_def_decl[1] + np.array(vals) if is_maximizer else 13 - n_tricks_def_decl[1] - np.array(vals)
-                e_tps = [-1, 1][is_maximizer] * np.array([scoring.score(contract, vuln_ns_ew[decl_i % 2], v + n_tricks_def_decl[1]) for v in vals])
-                e_vals = e_tricks if sc == 'MP' else e_tps
-                w_insta_factor = 0.5 if sc == 'MP' else 10
+                e_vals = e_tricks
+                w_insta_factor = 0.5
                 sorted_cards.append((
                     e_vals @ weights_play + w_insta_factor * p_card[0, c], c
                 ))
@@ -172,8 +169,8 @@ class Player:
         return Card.from_code(card).symbol()
 
 
-    def accept_samples_play(self, samples_in, hidden_indexes_nesw, played_cards, decl_i, strain_i):
-        on_play_i = (decl_i + 1) % 4
+    def accept_samples_play(self, samples_in, hidden_indexes_nesw, played_cards):
+        on_play_i = (len(played_cards) + 1) % 4
 
         samples = samples_in.copy()
 
@@ -184,7 +181,7 @@ class Player:
         
         for k, card in enumerate(played_cards):
             if len(trick) == 4:
-                trick_winner_i = (trick_leader_i + deck52.get_trick_winner_i(trick, (strain_i - 1) % 5)) % 4
+                trick_winner_i = (trick_leader_i + deck52.get_trick_winner_i(trick, 3)) % 4
                 on_play_i = trick_winner_i
                 trick = []
                 trick_leader_i = on_play_i
@@ -192,14 +189,13 @@ class Player:
             card = Card.from_symbol(card).code()
             
             if on_play_i in hidden_indexes_nesw:
-                p_peek = play_next_card(self.models.peekplay, samples, trick, on_play_i, strain_i)
+                p_peek = play_next_card(self.models.peekplay, samples, trick, on_play_i, self.spades_broken)
                 
                 z_peek = np.log(p_peek) - np.log(1 - p_peek)
                 temperature = 4
                 p_peek_t = 1 / (1 + np.exp(-(1/temperature)*z_peek))  # using temperature to be more relaxed
 
                 score_played_card[:,k] = p_peek_t[:,card]
-                # score_played_card[:,k] = p_peek[:,card]
 
             trick.append(card)
             samples[:, on_play_i, card] = 0
@@ -207,34 +203,25 @@ class Player:
         
         weights = np.exp(np.sum(np.log(score_played_card), axis=1))
 
-        # weights = np.sum(np.log(score_played_card), axis=1)
-        # weights = weights - np.min(weights)
-        # weights += 1e-3
-
         return weights
 
     
-    def opening_lead(self, vuln_ns_ew, hands_bin_nesw, auction_padded, sc):
+    def opening_lead(self, hands_bin_nesw, auction_padded):
         self.claim_info = None
         np.random.seed(1337)
 
-        contract = bidding.get_contract(auction_padded)
-        strain_i = bidding.get_strain_i(contract)
-        decl_i = bidding.get_decl_i(contract)
-
-        on_play_i = (decl_i + 1) % 4
+        on_play_i = (len(auction_padded) + 1) % 4
 
         if (len(auction_padded) - 1) % 4 == on_play_i:
             auction_lead = auction_padded[:-1]
         else:
             auction_lead = auction_padded + ['PAD_END']
 
-        lho_pard_rho = sample_cards_auction(1024, auction_lead, on_play_i, hands_bin_nesw[on_play_i], vuln_ns_ew, self.models.bidder_model, self.models.binfo)
+        lho_pard_rho = sample_cards_auction(1024, auction_lead, on_play_i, hands_bin_nesw[on_play_i], self.models.bidder_model, self.models.binfo)
         n_samples = lho_pard_rho.shape[0]
 
         # get card scores from peekplay
         X = np.zeros((n_samples, 369))
-        X[:, 364 + strain_i] = 1
         
         X[:, :52] = hands_bin_nesw[on_play_i]
         X[:, 52:104] = lho_pard_rho[:, 0, :]
@@ -246,7 +233,6 @@ class Player:
         p_peek = p_peek / p_peek.sum(axis=1, keepdims=True)
         peek_scores = np.mean(p_peek, axis=0)
 
-        # candidate_cards = (peek_scores * (peek_scores > 0.05)).nonzero()[0]
         candidate_cards = (peek_scores * (peek_scores > 0.1)).nonzero()[0]
 
         hands_np = np.zeros((n_samples, 4, 52), dtype=np.uint8)    
@@ -259,7 +245,6 @@ class Player:
 
         X_sd = np.zeros((n_samples, 32 + 5 + 4*32))
 
-        X_sd[:, 32 + strain_i] = 1
         # lefty
         X_sd[:,(32 + 5 + 0*32):(32 + 5 + 1*32)] = hands32[:, 0]
         # dummy
@@ -282,14 +267,13 @@ class Player:
             decl_tricks_softmax = self.models.sd_model.model(X_sd)
 
             expected_tricks = np.mean(decl_tricks_softmax @ np.arange(14))
-            p_makes = decl_tricks_softmax[:,:int(contract[0])+6].sum(axis=1).mean()
 
             card_symbol = Card.from_code(card).symbol()
 
-            sys.stderr.write(f'lead cand {card_symbol} score={peek_scores[card]} exp_tricks={expected_tricks} p_makes={p_makes}\n')
+            sys.stderr.write(f'lead cand {card_symbol} score={peek_scores[card]} exp_tricks={expected_tricks}\n')
 
-            expected_value = expected_tricks if sc == 'MP' else p_makes
-            factor = 5 if sc == 'MP' else 30
+            expected_value = expected_tricks
+            factor = 5
             cand_ev[card_symbol] = (
                 expected_value
                 +
@@ -303,9 +287,8 @@ class Player:
         return card
 
 
-def play_next_card(playmodel, samples, current_trick, on_play_i, strain_i):
+def play_next_card(playmodel, samples, current_trick, on_play_i, spades_broken):
     X = np.zeros((samples.shape[0], 369))
-    X[:, 364 + strain_i] = 1
     n_trick_cards = len(current_trick)
     if n_trick_cards > 0:
         X[:, 312 + current_trick[n_trick_cards - 1]] = 1
@@ -321,7 +304,13 @@ def play_next_card(playmodel, samples, current_trick, on_play_i, strain_i):
     
     p_peek = playmodel.model(X)
 
-    return p_peek
+    # Ensure only legal cards are considered
+    trick_suit = np.zeros((samples.shape[0], 4), dtype=np.uint8)
+    if n_trick_cards > 0:
+        trick_suit[:, current_trick[0] // 13] = 1
+    p_follow = follow_suit(p_peek, samples[:, on_play_i, :], trick_suit, spades_broken, n_trick_cards)
+
+    return p_follow
 
 
 class Bidder:
@@ -332,14 +321,13 @@ class Bidder:
         self.search = search
         self.min_candidate_score = min_candidate_score
 
-    def bid(self, vuln_ns_ew, hands_bin_nesw, auction_padded, scoring):
+    def bid(self, hands_bin_nesw, auction_padded):
         np.random.seed(1337)
 
         hand_ix = len(auction_padded) % 4
-        # hand_bin = binary.parse_hand_f(52)(hands_str_nesw[hand_ix])
         hand_bin = hands_bin_nesw[hand_ix]
 
-        candidates = self.get_bid_candidates(vuln_ns_ew, hand_bin, auction_padded)
+        candidates = self.get_bid_candidates(hand_bin, auction_padded)
         candidates_sorted = candidates
 
         for cand in candidates_sorted:
@@ -347,10 +335,10 @@ class Bidder:
         
         return candidates_sorted[0].bid
     
-    def get_bid_candidates(self, vuln_ns_ew, hand_bin, auction_padded):
+    def get_bid_candidates(self, hand_bin, auction_padded):
         n_steps = get_n_steps_auction(auction_padded)
         hand_ix = len(auction_padded) % 4
-        X = binary.get_auction_binary_4(n_steps, auction_padded, hand_ix, hand_bin, vuln_ns_ew)
+        X = binary.get_auction_binary_4(n_steps, auction_padded, hand_ix, hand_bin)
 
         bid_softmax = self.models.bidder_model.model_seq(X)[-1]
 
@@ -374,11 +362,7 @@ def step_through_cardplay(auction_padded, played_cards):
     cards_played_by = [[], [], [], []]  # nesw
     shown_out_suits = [set(), set(), set(), set()]  # nesw
 
-    contract = bidding.get_contract(auction_padded)
-    strain_i = bidding.get_strain_i(contract)
-    decl_i = bidding.get_decl_i(contract)
-
-    on_play_i = (decl_i + 1) % 4
+    on_play_i = 0
     for card_symbol in played_cards:
         card = Card.from_symbol(card_symbol).code()
 
@@ -394,7 +378,7 @@ def step_through_cardplay(auction_padded, played_cards):
             trick_leader_i = (on_play_i + 1) % 4
             trick_leaders.append(trick_leader_i)
 
-            trick_winner_i = (trick_leader_i + deck52.get_trick_winner_i(current_trick, (strain_i - 1) % 5)) % 4
+            trick_winner_i = (trick_leader_i + deck52.get_trick_winner_i(current_trick, 3)) % 4  # Spades is always trump
             trick_winners.append(trick_winner_i)
 
             on_play_i = trick_winner_i
@@ -404,16 +388,16 @@ def step_through_cardplay(auction_padded, played_cards):
     
     return tricks, trick_leaders, trick_winners, current_trick, on_play_i, cards_played_by, shown_out_suits
 
-def get_h1_h2_nesw(decl_i, on_play_i):
+def get_h1_h2_nesw(on_play_i):
     h_1_nesw, h_2_nesw = -1, -1
-    if on_play_i == (decl_i + 1) % 4: # lefty
-        h_1_nesw, h_2_nesw = decl_i, (decl_i - 1) % 4
-    elif on_play_i == (decl_i + 2) % 4: # dummy
-        h_1_nesw, h_2_nesw = (decl_i + 1) % 4, (decl_i - 1) % 4
-    elif on_play_i == (decl_i + 3) % 4: # righty
-        h_1_nesw, h_2_nesw = (decl_i + 1) % 4, decl_i
+    if on_play_i == 1: # lefty
+        h_1_nesw, h_2_nesw = 0, 3
+    elif on_play_i == 2: # dummy
+        h_1_nesw, h_2_nesw = 1, 3
+    elif on_play_i == 3: # righty
+        h_1_nesw, h_2_nesw = 1, 0
     else: # declarer on play
-        h_1_nesw, h_2_nesw = (decl_i + 3) % 4, (decl_i + 1) % 4
+        h_1_nesw, h_2_nesw = 3, 1
     
     return h_1_nesw, h_2_nesw
 
@@ -462,12 +446,12 @@ def shuffle_cards_random(n_samples, h_1_nesw, h_2_nesw, hidden_cards, cards_play
     return h1_h2
 
 
-def shuffle_cards_bidding_info(n_samples, binfo, auction_padded, hand, vuln_ns_ew, known_nesw, h_1_nesw, h_2_nesw, hidden_cards, cards_played, shown_out_suits):
+def shuffle_cards_bidding_info(n_samples, binfo, auction_padded, hand, known_nesw, h_1_nesw, h_2_nesw, hidden_cards, cards_played, shown_out_suits):
     n_cards_to_receive = np.array([len(hidden_cards) // 2, len(hidden_cards) - len(hidden_cards) // 2])
 
     n_steps = 1 + len(auction_padded) // 4
 
-    A = binary.get_auction_binary_4(n_steps, auction_padded, known_nesw, hand, vuln_ns_ew)
+    A = binary.get_auction_binary_4(n_steps, auction_padded, known_nesw, hand)
 
     p_hcp, p_shp = binfo.model(A)
 
@@ -585,10 +569,10 @@ def shuffle_cards_bidding_info(n_samples, binfo, auction_padded, hand, vuln_ns_e
     
     return h1_h2[accept]
 
-def get_bid_scores(nesw_i, auction_padded, vuln_ns_ew, hand, bidder_model):
+def get_bid_scores(nesw_i, auction_padded, hand, bidder_model):
     n_steps = 1 + len(auction_padded) // 4
 
-    A = binary.get_auction_binary_4(n_steps, auction_padded, nesw_i, hand, vuln_ns_ew)
+    A = binary.get_auction_binary_4(n_steps, auction_padded, nesw_i, hand)
 
     X = np.zeros((hand.shape[0], n_steps, A.shape[-1]))
 
@@ -610,13 +594,13 @@ def get_bid_scores(nesw_i, auction_padded, vuln_ns_ew, hand, bidder_model):
 
     return min_scores
 
-def sample_accept_auction(samples, h_1_nesw, h_2_nesw, auction_padded, vuln_ns_ew, bidder_model):
+def sample_accept_auction(samples, h_1_nesw, h_2_nesw, auction_padded, bidder_model):
     n_samples = samples.shape[0]
 
     min_bid_scores = np.ones(n_samples)
 
     for h_i_nesw in [h_1_nesw, h_2_nesw]:
-        bid_scores = get_bid_scores(h_i_nesw, auction_padded, vuln_ns_ew, samples[:, h_i_nesw, :], bidder_model)
+        bid_scores = get_bid_scores(h_i_nesw, auction_padded, samples[:, h_i_nesw, :], bidder_model)
 
         min_bid_scores = np.minimum(min_bid_scores, bid_scores)
 

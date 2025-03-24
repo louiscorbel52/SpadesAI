@@ -6,11 +6,9 @@ from util import follow_suit, eval_position
 
 class Searcher:
 
-    def __init__(self, playmodel, evalmodel, decl_i, strain_i):
+    def __init__(self, playmodel, evalmodel):
         self.playmodel = playmodel
         self.evalmodel = evalmodel
-        self.decl_i = decl_i
-        self.strain_i = strain_i
 
     def search(self, samples, candidates, on_play_i, current_trick, n_decl_tricks, depth, search_for):
         n_samples = samples.shape[0]
@@ -67,7 +65,7 @@ class Searcher:
 
                     elif isinstance(op, ForeachCandidateEnd):
                         samples[sample_i, op.on_play_i, op.candidates[0]] = 1 # unplay the card
-                        is_maximizer = (self.decl_i % 2) == (op.on_play_i % 2)
+                        is_maximizer = (on_play_i % 2) == (op.on_play_i % 2)
                         _, score = sorted(results[sample_i].items(), key=lambda x: x[1], reverse=not is_maximizer)[0]
                         cand_res = {op.candidates[0]: score, **op.results}
                         stack.append(
@@ -97,8 +95,8 @@ class Searcher:
                             ))
                         
                     elif isinstance(op, TrickComplete):
-                        trick_winner_i = (op.on_play_i + deck52.get_trick_winner_i(op.current_trick, (self.strain_i - 1) % 5)) % 4
-                        is_decl_win = (trick_winner_i % 2) == (self.decl_i % 2)
+                        trick_winner_i = (op.on_play_i + deck52.get_trick_winner_i(op.current_trick, 3)) % 4  # Spades is always trump
+                        is_decl_win = (trick_winner_i % 2) == (on_play_i % 2)
                         stack.append(NewTrick(on_play_i=trick_winner_i, n_decl_tricks=op.n_decl_tricks + is_decl_win, depth=op.depth - 1))
 
             # now we can't progress further on any of the stacks
@@ -114,12 +112,11 @@ class Searcher:
                 elif isinstance(stack[-1], EvalPosition):
                     samples_to_eval.append(sample_i)
                 else:
-                    raise Exception(f'unexpecyted operation on top of stack: {stack[-1]}')
+                    raise Exception(f'unexpected operation on top of stack: {stack[-1]}')
                 
             # run the play model for all samples_to_play
             if samples_to_play:
                 X = np.zeros((len(samples_to_play), 369))
-                X[:, 364 + self.strain_i] = 1
                 trick_suit = np.zeros((len(samples_to_play), 4), dtype=np.uint8)
                 whos_turn = []
                 for i, sample_i in enumerate(samples_to_play):
@@ -150,6 +147,7 @@ class Searcher:
                     candidates = sorted(candidates, reverse=True)
 
                     op = stacks[samples_to_play[i]].pop()
+                    import pdb; pdb.set_trace()
 
                     if candidates[0][0] >= 0.9 or whos_turn[i] not in search_for or op.depth < depth - 3 or (op.depth < depth and op.current_trick):
                         candidates = [candidates[0][1]]
@@ -171,7 +169,7 @@ class Searcher:
             if samples_to_eval:
                 for sample_i in samples_to_eval:
                     op = stacks[sample_i].pop()
-                    p_tricks = eval_position(self.evalmodel, samples[sample_i:sample_i+1], op.on_play_i, self.decl_i, self.strain_i)
+                    p_tricks = eval_position(self.evalmodel, samples[sample_i:sample_i+1], op.on_play_i)
                     tricks_ev = op.n_decl_tricks + p_tricks[0] @ np.arange(14)
                     results[sample_i] = {None: tricks_ev}
 

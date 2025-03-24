@@ -1,10 +1,7 @@
 import time
-
 import numpy as np
-
 import binary
 import bidding
-
 
 def distr_vec(x):
     xpos = np.maximum(x, 0) + 0.1
@@ -32,7 +29,6 @@ def distr2_vec(x1, x2):
     
     return distr_vec(pvals)
 
-
 def get_small_out_i(small_out):
     x = small_out.copy()
     dec = np.minimum(1, x)
@@ -44,7 +40,6 @@ def get_small_out_i(small_out):
         dec = np.minimum(1, x)
         
     return result
-
 
 def sample_cards_vec(n_samples, p_hcp, p_shp, my_hand):
     deck = np.ones(52)
@@ -135,14 +130,13 @@ def sample_cards_vec(n_samples, p_hcp, p_shp, my_hand):
     else:
         return lho_pard_rho
 
-
-def sample_cards_auction(n_samples, auction, nesw_i, hand, vuln, bidder_model, binfo_model):
+def sample_cards_auction(n_samples, auction, nesw_i, hand, bidder_model, binfo_model):
     n_steps = 1 + len(auction) // 4
 
-    A = binary.get_auction_binary_4(n_steps, auction, nesw_i, hand, vuln)
-    A_lho = binary.get_auction_binary_4(n_steps, auction, (nesw_i + 1) % 4, hand, vuln)
-    A_pard = binary.get_auction_binary_4(n_steps, auction, (nesw_i + 2) % 4, hand, vuln)
-    A_rho = binary.get_auction_binary_4(n_steps, auction, (nesw_i + 3) % 4, hand, vuln)
+    A = binary.get_auction_binary_4(n_steps, auction, nesw_i, hand)
+    A_lho = binary.get_auction_binary_4(n_steps, auction, (nesw_i + 1) % 4, hand)
+    A_pard = binary.get_auction_binary_4(n_steps, auction, (nesw_i + 2) % 4, hand)
+    A_rho = binary.get_auction_binary_4(n_steps, auction, (nesw_i + 3) % 4, hand)
 
     p_hcp, p_shp = binfo_model.model(A)
 
