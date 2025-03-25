@@ -16,7 +16,7 @@ def test_1c1dxp():
 
     bid = bidder.bid(vuln_ns_ew, hands_str_nesw, auction_padded)
 
-    import pdb; pdb.set_trace()
+    ## import pdb; pdb.set_trace()
 
 def test_bw1():
     vuln_ns_ew = [False, False]
@@ -25,7 +25,7 @@ def test_bw1():
 
     bid = bidder.bid(vuln_ns_ew, hands_str_nesw, auction_padded)
 
-    import pdb; pdb.set_trace()
+    ## import pdb; pdb.set_trace()
 
 def test_2dopen():
     vuln_ns_ew = [True, False]

@@ -28,13 +28,14 @@ class Player:
         self.spades_broken = False  # Track if spades are broken
 
     def play(self, hands_bin_nesw, auction_padded, played_cards):
+        ## import pdb; pdb.set_trace()
         self.claim_info = None
         assert len(played_cards) > 0
 
         np.random.seed(1337)
 
         # Ensure auction_padded only contains valid bids
-        auction_padded = [bid for bid in auction_padded if bid.isdigit() and 0 <= int(bid) <= 13]
+        ## auction_padded = [bid for bid in auction_padded and 0 <= int(bid) <= 13]
 
         searcher = Searcher(self.models.peekplay, self.models.poseval)
         
@@ -68,6 +69,7 @@ class Player:
 
         h_1_nesw, h_2_nesw = get_h1_h2_nesw(on_play_i)
 
+        import pdb; pdb.set_trace()
         samples_bid_batches = []
         for _ in range(self.n_samples // 16):
             h1_h2 = shuffle_cards_bidding_info(
@@ -98,6 +100,7 @@ class Player:
             samples_bid_batches.append(samples_bid_batch)
 
         samples_bid = np.concatenate(samples_bid_batches)
+        import pdb; pdb.set_trace()
 
         print(f'{samples_bid.shape[0]} samples')
 
@@ -120,6 +123,8 @@ class Player:
         trick_suit = np.zeros((1, 4), dtype=np.uint8)
         if current_trick:
             trick_suit[0, current_trick[0] // 13] = 1
+        
+        import pdb; pdb.set_trace()
         p_card = follow_suit(peek_scores.reshape((1, -1)), samples_bid[0, on_play_i].reshape((1, 52)), trick_suit, self.spades_broken, len(current_trick))
         candidates = [(p_card[0, c], c) for c in np.nonzero(p_card[0])[0] if p_card[0, c] >= 0.01]  # TODO: magic number
         if not candidates:
@@ -135,6 +140,7 @@ class Player:
             is_maximizer = True
 
         search_scores = {}
+        ## import pdb; pdb.set_trace()
         if self.search and len(candidates) > 1:
              
             search_results_vec = defaultdict(list)
@@ -143,7 +149,8 @@ class Player:
 
             sample_results_vec = []
             t_start = time.time()
-            sample_results_vec = searcher.search(samples_bid[:n_dd_samples], candidates, on_play_i, current_trick, 0, 13, search_for)
+            ## import pdb; pdb.set_trace()
+            sample_results_vec = searcher.search(samples_bid[:n_dd_samples], candidates, on_play_i, current_trick, 0, 13, search_for, self.spades_broken)
             print(f'search took {time.time() - t_start} seconds')
             for s_result in sample_results_vec:
                 for card, ev in s_result.items():
@@ -215,7 +222,7 @@ class Player:
         if (len(auction_padded) - 1) % 4 == on_play_i:
             auction_lead = auction_padded[:-1]
         else:
-            auction_lead = auction_padded + ['PAD_END']
+            auction_lead = auction_padded + [15]  # Replace 'PAD_END' with 15
 
         lho_pard_rho = sample_cards_auction(1024, auction_lead, on_play_i, hands_bin_nesw[on_play_i], self.models.bidder_model, self.models.binfo)
         n_samples = lho_pard_rho.shape[0]
@@ -308,6 +315,7 @@ def play_next_card(playmodel, samples, current_trick, on_play_i, spades_broken):
     trick_suit = np.zeros((samples.shape[0], 4), dtype=np.uint8)
     if n_trick_cards > 0:
         trick_suit[:, current_trick[0] // 13] = 1
+    import pdb; pdb.set_trace()
     p_follow = follow_suit(p_peek, samples[:, on_play_i, :], trick_suit, spades_broken, n_trick_cards)
 
     return p_follow
@@ -347,14 +355,15 @@ class Bidder:
             bid_i = np.argmax(bid_softmax)
             if bid_softmax[bid_i] < self.min_candidate_score and len(candidates) > 0:
                 break
-            if bidding.can_bid(bidding.ID2BID[bid_i], auction_padded):
-                candidates.append(CandidateBid(bid=bidding.ID2BID[bid_i], insta_score=bid_softmax[bid_i]))
+            if bidding.can_bid(str(bid_i), auction_padded):
+                candidates.append(CandidateBid(bid=str(bid_i), insta_score=bid_softmax[bid_i]))
             bid_softmax[bid_i] = 0
 
         return candidates
     
 
 def step_through_cardplay(auction_padded, played_cards):
+    ## import pdb; pdb.set_trace()
     tricks = []
     trick_leaders = []
     trick_winners = []
@@ -405,7 +414,7 @@ def get_h1_h2_nesw(on_play_i):
 def get_n_steps_auction(auction):
     hand_i = len(auction) % 4
     i = hand_i
-    while i < len(auction) and auction[i] == 'PAD_START':
+    while i < len(auction) and auction[i] == 14:  # Replace 'PAD_START' with 14
         i += 4
     return 1 + (len(auction) - i) // 4
 
@@ -589,7 +598,7 @@ def get_bid_scores(nesw_i, auction_padded, hand, bidder_model):
     min_scores = np.ones(hand.shape[0])
 
     for i in range(n_steps):
-        if actual_bids[i] not in (bidding.BID2ID['PAD_START'], bidding.BID2ID['PAD_END']):
+        if actual_bids[i] not in (14, 15):  # PAD_START and PAD_END
             min_scores = np.minimum(min_scores, sample_bids[:,i,actual_bids[i]])
 
     return min_scores

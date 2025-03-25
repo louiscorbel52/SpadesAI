@@ -184,11 +184,11 @@ def sample_cards_auction(n_samples, auction, nesw_i, hand, bidder_model, binfo_m
     min_scores = np.ones(n_samples)
 
     for i in range(n_steps):
-        if lho_actual_bids[i] not in (bidding.BID2ID['PAD_START'], bidding.BID2ID['PAD_END']):
+        if lho_actual_bids[i] not in (14, 15):  # PAD_START and PAD_END
             min_scores = np.minimum(min_scores, lho_sample_bids[:,i,lho_actual_bids[i]])
-        if pard_actual_bids[i] not in (bidding.BID2ID['PAD_START'], bidding.BID2ID['PAD_END']):
+        if pard_actual_bids[i] not in (14, 15):  # PAD_START and PAD_END
             min_scores = np.minimum(min_scores, pard_sample_bids[:,i,pard_actual_bids[i]])
-        if rho_actual_bids[i] not in (bidding.BID2ID['PAD_START'], bidding.BID2ID['PAD_END']):
+        if rho_actual_bids[i] not in (14, 15):  # PAD_START and PAD_END
             min_scores = np.minimum(min_scores, rho_sample_bids[:,i,rho_actual_bids[i]])
 
     accept_threshold = 0.1

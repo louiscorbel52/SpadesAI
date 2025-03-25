@@ -45,7 +45,7 @@ async def robot(pov: str, d: str, n: str, e: str, s: str, w: str, h: str, sc: st
     auction_padded, played_cards = parse_history(dealer, h)
 
     hands_str_nesw = [n.upper(), e.upper(), s.upper(), w.upper()]
-
+    
     move = None
     if not bidding.auction_over(auction_padded):
         move = ben_bot.call(pov, dealer, hands_str_nesw, auction_padded, played_cards, sc)

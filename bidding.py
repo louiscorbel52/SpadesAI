@@ -1,8 +1,8 @@
 import numpy as np
 
 BID2ID = {
-    'PAD_START': 0,
-    'PAD_END': 1,
+    'PAD_START': 14,
+    'PAD_END': 15,
 }
 
 # Bids are the number of tricks from 0 to 13
@@ -12,17 +12,22 @@ BID2ID.update(TRICK_BIDS)
 ID2BID = {bid: i for i, bid in BID2ID.items()}
 
 def encode_bid(bid):
-    bid_one_hot = np.zeros((1, len(BID2ID)), dtype=np.float32)
-    bid_one_hot[0, BID2ID[bid]] = 1
+    bid_one_hot = np.zeros((1, 16), dtype=np.float32)
+    bid_one_hot[0, int(bid)] = 1
     return bid_one_hot
 
 def can_bid(bid, auction):
-    if bid.isdigit() and 0 <= int(bid) <= 13:
+    if 0 <= int(bid) <= 13:
         return True
     return False
 
 def auction_over(auction):
-    return len(auction) == 4
+    if len(auction) != 4:
+        return False
+    for bid in auction:
+        if not (0 <= int(bid) <= 13):
+            return False
+    return True
 
 def get_bid_ids(auction, player_i, n_steps):
     i = player_i
@@ -30,11 +35,11 @@ def get_bid_ids(auction, player_i, n_steps):
 
     while len(result) < n_steps:
         if i >= len(auction):
-            result.append(BID2ID['PAD_END'])
+            result.append(15)  # Use 15 as PAD_END
             continue
         call = auction[i]
-        if not (call == 'PAD_START' and len(result) == 0):
-            result.append(BID2ID[call])
+        if not (call == 14 and len(result) == 0):  # Replace 'PAD_START' with 14
+            result.append(int(call))
         i = i + 4
 
     return np.array(result)
@@ -42,7 +47,7 @@ def get_bid_ids(auction, player_i, n_steps):
 def get_dealer_i(auction_padded):
     dealer_i = 0
     for bid in auction_padded:
-        if bid == 'PAD_START':
+        if bid == 14:  # Replace 'PAD_START' with 14
             dealer_i = (dealer_i + 1) % 4
         else:
             break

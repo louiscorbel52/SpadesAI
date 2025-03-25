@@ -84,16 +84,14 @@ def get_auction_binary_4(n_steps, auction_input, hand_ix, hand):
     
     auction = auction_input
     if isinstance(auction, list):
-        auction_input = auction_input + ['PAD_END'] * 4 * n_steps
-        auction = bidding.BID2ID['PAD_END'] * np.ones((n_samples, len(auction_input)), dtype=np.int32)
-
-        #import pdb; pdb.set_trace()
+        auction_input = auction_input + ['13'] * 4 * n_steps
+        auction = 13 * np.ones((n_samples, len(auction_input)), dtype=np.int32)
 
         for i, bid in enumerate(auction_input):
-            auction[:,i] = bidding.BID2ID[bid]
+            auction[:,i] = int(bid)
     
     bid_i = hand_ix
-    while np.all(auction[:, bid_i] == bidding.BID2ID['PAD_START']):
+    while np.all(auction[:, bid_i] == 14):  # Replace 'PAD_START' with 14
         bid_i += 4
 
     X[:, :, 2:6] = get_shape(hand).reshape((-1, 1, 4)) / 4
@@ -105,10 +103,10 @@ def get_auction_binary_4(n_steps, auction_input, hand_ix, hand):
     step_i = 0
     s_all = np.arange(n_samples, dtype=np.int)
     while step_i < n_steps:
-        my_bid = auction[:, bid_i - 4] if bid_i -4 >= 0 else bidding.BID2ID['PAD_START']
-        lho_bid = auction[:, bid_i - 3] if bid_i - 3 >= 0 else bidding.BID2ID['PAD_START']
-        partner_bid = auction[:, bid_i - 2] if bid_i - 2 >= 0 else bidding.BID2ID['PAD_START']
-        rho_bid = auction[:, bid_i - 1] if bid_i - 1 >= 0 else bidding.BID2ID['PAD_START']
+        my_bid = auction[:, bid_i - 4] if bid_i -4 >= 0 else 14  # Replace 'PAD_START' with 14
+        lho_bid = auction[:, bid_i - 3] if bid_i - 3 >= 0 else 14  # Replace 'PAD_START' with 14
+        partner_bid = auction[:, bid_i - 2] if bid_i - 2 >= 0 else 14  # Replace 'PAD_START' with 14
+        rho_bid = auction[:, bid_i - 1] if bid_i - 1 >= 0 else 14  # Replace 'PAD_START' with 14
         
         X[s_all,step_i,16+my_bid] = 1
         X[s_all,step_i,(16+40)+lho_bid] = 1

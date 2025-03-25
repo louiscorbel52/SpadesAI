@@ -10,7 +10,7 @@ class Searcher:
         self.playmodel = playmodel
         self.evalmodel = evalmodel
 
-    def search(self, samples, candidates, on_play_i, current_trick, n_decl_tricks, depth, search_for):
+    def search(self, samples, candidates, on_play_i, current_trick, n_decl_tricks, depth, search_for, spades_broken):
         n_samples = samples.shape[0]
 
         # create a stack for each sample and put the initial operation on the stack
@@ -116,6 +116,7 @@ class Searcher:
                 
             # run the play model for all samples_to_play
             if samples_to_play:
+                ## import pdb; pdb.set_trace()
                 X = np.zeros((len(samples_to_play), 369))
                 trick_suit = np.zeros((len(samples_to_play), 4), dtype=np.uint8)
                 whos_turn = []
@@ -138,8 +139,9 @@ class Searcher:
                     X[i, 156:208] = samples[sample_i, (op.on_play_i + 3) % 4, :]
                 
                 p_peek = self.playmodel.model(X)
-                p_follow = follow_suit(p_peek, X[:,:52], trick_suit)
-
+                import pdb; pdb.set_trace()
+                p_follow = follow_suit(p_peek, X[:,:52], trick_suit, spades_broken, len(current_trick))
+                
                 for i in range(len(samples_to_play)):
                     candidates = [(p_follow[i, c], c) for c in np.nonzero(p_follow[i])[0] if p_follow[i, c] >= 0.05]  
                     if not candidates:
@@ -147,8 +149,9 @@ class Searcher:
                     candidates = sorted(candidates, reverse=True)
 
                     op = stacks[samples_to_play[i]].pop()
-                    import pdb; pdb.set_trace()
-
+                    #### import pdb; pdb.set_trace()
+                    ## import pdb; pdb.set_trace()
+                    
                     if candidates[0][0] >= 0.9 or whos_turn[i] not in search_for or op.depth < depth - 3 or (op.depth < depth and op.current_trick):
                         candidates = [candidates[0][1]]
                     else:

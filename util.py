@@ -18,12 +18,12 @@ def parse_history(dealer, history):
             if bidding.auction_over(auction):
                 is_play = True
 
-    auction_padded = ['PAD_START'] * 'NESW'.index(dealer) + auction
+    auction_padded = auction  # Replace 'PAD_START' with 14
     
     return auction_padded, play
 
 def get_history(auction_padded, played_cards):
-    auction = '-'.join(auction_padded).replace('PASS', 'P').replace('PAD_START', '').strip('-')
+    auction = '-'.join(map(str, auction_padded)).replace('PASS', 'P').replace('14', '').strip('-')  # Replace 'PAD_START' with 14
     play = '-'.join(played_cards)
     
     return f'{auction}-{play}'.strip('-')
@@ -34,7 +34,7 @@ def to_bbo_hand(hand):
 
 def to_bbo_handviewer(hands_str_nesw, auction_padded, cards_played):
     dealer = 'NESW'[bidding.get_dealer_i(auction_padded)]
-    auction_bbo = '-'.join(auction_padded).replace('PASS', 'P').replace('PAD_START', '').replace('-', '')
+    auction_bbo = '-'.join(map(str, auction_padded)).replace('PASS', 'P').replace('14', '').replace('-', '')  # Replace 'PAD_START' with 14
     h_bbo = [to_bbo_hand(hand) for hand in hands_str_nesw]
     return f'https://www.bridgebase.com/tools/handviewer.html?d={dealer}&a={auction_bbo}&n={h_bbo[0]}&e={h_bbo[1]}&s={h_bbo[2]}&w={h_bbo[3]}&p={"".join(cards_played)}'
 
@@ -73,13 +73,15 @@ def follow_suit(cards_softmax, own_cards, trick_suit, spades_broken, n_trick_car
     mask[suit_defined & has_cards_of_suit] *= SUIT_MASK[trick_suit_i[suit_defined & has_cards_of_suit]]
 
     # If spades are not broken and it's the first card of the trick, spades cannot be played
-    if not spades_broken and n_trick_cards == 0:
-        mask[:, 39:52] = 0  # Spades are in the range 39-51
+    ## DEBUG - REMOVING THIS CONDITION TO SEE IF IT IS WAS IS CAUSING EMPTY CANDIDATES IN SEARCH
+    ##if not spades_broken and n_trick_cards == 0:
+    ##    mask[:, 39:52] = 0  # Spades are in the range 39-51
 
     legal_cards_softmax = cards_softmax * mask
 
     s = np.sum(legal_cards_softmax, axis=1, keepdims=True)
     s[s < 1e-9] = 1e-9
+    import pdb; pdb.set_trace()
     return legal_cards_softmax / s
 
 def hands_bin_52_to_32(hands_np):
