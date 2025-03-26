@@ -81,7 +81,7 @@ def follow_suit(cards_softmax, own_cards, trick_suit, spades_broken, n_trick_car
 
     s = np.sum(legal_cards_softmax, axis=1, keepdims=True)
     s[s < 1e-9] = 1e-9
-    import pdb; pdb.set_trace()
+    ## import pdb; pdb.set_trace()
     return legal_cards_softmax / s
 
 def hands_bin_52_to_32(hands_np):

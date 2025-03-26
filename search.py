@@ -139,18 +139,41 @@ class Searcher:
                     X[i, 156:208] = samples[sample_i, (op.on_play_i + 3) % 4, :]
                 
                 p_peek = self.playmodel.model(X)
-                import pdb; pdb.set_trace()
+                # Check if all subarrays in X[:, :52] contain at least one non-zero value
+                valid_X = np.all(np.any(X[:, :52] != 0, axis=1))
+                ##import pdb; pdb.set_trace()
                 p_follow = follow_suit(p_peek, X[:,:52], trick_suit, spades_broken, len(current_trick))
                 
                 for i in range(len(samples_to_play)):
                     candidates = [(p_follow[i, c], c) for c in np.nonzero(p_follow[i])[0] if p_follow[i, c] >= 0.05]  
                     if not candidates:
+                        # Fallback to include all non-zero probabilities if candidates are empty
                         candidates = [(p_follow[i, c], c) for c in np.nonzero(p_follow[i])[0]]
+
                     candidates = sorted(candidates, reverse=True)
 
                     op = stacks[samples_to_play[i]].pop()
                     #### import pdb; pdb.set_trace()
-                    ## import pdb; pdb.set_trace()
+                    ##import pdb; pdb.set_trace()
+
+                    if not candidates:
+                        # Log relevant information when candidates are empty
+                        print(f"Warning: Candidates are empty for sample {i}")
+                        print(candidates)
+                        print(f"  valid_X: {valid_X}")
+                        print(f"  on_play_i: {whos_turn[i]}")
+                        print(f"  current_trick: {stacks[samples_to_play[i]][-1].current_trick}")
+                        ##print(f"  p_follow: {p_follow[i]}")  # Log the probabilities for debugging
+                        ##print(f"i = {i}")
+                        print(f"X[i, :52]: {X[i, :52]}")
+                        print(f"X[i, 52:104]: {X[i, 52:104]}")
+                        print(f"X[i, 104:156]: {X[i, 104:156]}")
+                        print(f"X[i, 156:208]: {X[i, 156:208]}")
+                        print(f"samples[sample_i] : {samples[samples_to_play[i]]}")
+                        print(f"  n_trick_cards: {len(stacks[samples_to_play[i]][-1].current_trick)}")
+                        
+                        
+
                     
                     if candidates[0][0] >= 0.9 or whos_turn[i] not in search_for or op.depth < depth - 3 or (op.depth < depth and op.current_trick):
                         candidates = [candidates[0][1]]

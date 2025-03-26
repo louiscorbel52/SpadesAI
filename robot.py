@@ -61,16 +61,21 @@ class Player:
 
         hand_bin = hands_bin_nesw[on_play_i] # this is the hand on play
 
+        dummy_i = (on_play_i + 2) % 4
+        cards_dummy = binary.get_cards_from_binary_hand(hands_bin_nesw[dummy_i].reshape(52))
+
+
         cards_own = binary.get_cards_from_binary_hand(hand_bin.reshape(52))
 
         hidden_cards = list(
-            set(range(52)) - set(cards_own) - set(functools.reduce(operator.add, cards_played_by))
+            set(range(52)) - set(cards_own) - set(cards_dummy) - set(functools.reduce(operator.add, cards_played_by))
         )
 
         h_1_nesw, h_2_nesw = get_h1_h2_nesw(on_play_i)
 
-        import pdb; pdb.set_trace()
+        ## import pdb; pdb.set_trace()
         samples_bid_batches = []
+        print(f"JUST BEFORE ENTERING FOR LOOP THAT INITIALIZE SAMPLES WITH n_samples: {self.n_samples}")
         for _ in range(self.n_samples // 16):
             h1_h2 = shuffle_cards_bidding_info(
                 n_samples=16 * 4,
@@ -87,8 +92,14 @@ class Player:
 
             samples = np.zeros((h1_h2.shape[0], 4, 52), dtype=np.uint8)
             samples[:,on_play_i,:] = hand_bin
+            samples[:,dummy_i,:] = hands_bin_nesw[dummy_i]
             samples[:,h_1_nesw,:] = h1_h2[:,0,:]
             samples[:,h_2_nesw,:] = h1_h2[:,1,:]
+            print("_: {}".format(_))
+            print("samples[:,on_play_i,:] : {}".format(samples[:,on_play_i,:]))
+            print("samples[:,dummy_i,:] : {}".format(samples[:,dummy_i,:]))
+            print("samples[:,h_1_nesw,:] : {}".format(samples[:,h_1_nesw,:]))
+            print("samples[:,h_2_nesw,:] : {}".format(samples[:,h_2_nesw,:]))
 
             samples_bid_batch, _, _ = sample_accept_auction(
                 samples,
@@ -97,10 +108,11 @@ class Player:
                 auction_padded=auction_padded,
                 bidder_model=self.models.bidder_model
             )
+            print("samples_bid_batch: {}".format(samples_bid_batch))
             samples_bid_batches.append(samples_bid_batch)
 
         samples_bid = np.concatenate(samples_bid_batches)
-        import pdb; pdb.set_trace()
+        ## import pdb; pdb.set_trace()
 
         print(f'{samples_bid.shape[0]} samples')
 
@@ -124,7 +136,7 @@ class Player:
         if current_trick:
             trick_suit[0, current_trick[0] // 13] = 1
         
-        import pdb; pdb.set_trace()
+        ##import pdb; pdb.set_trace()
         p_card = follow_suit(peek_scores.reshape((1, -1)), samples_bid[0, on_play_i].reshape((1, 52)), trick_suit, self.spades_broken, len(current_trick))
         candidates = [(p_card[0, c], c) for c in np.nonzero(p_card[0])[0] if p_card[0, c] >= 0.01]  # TODO: magic number
         if not candidates:
@@ -315,7 +327,7 @@ def play_next_card(playmodel, samples, current_trick, on_play_i, spades_broken):
     trick_suit = np.zeros((samples.shape[0], 4), dtype=np.uint8)
     if n_trick_cards > 0:
         trick_suit[:, current_trick[0] // 13] = 1
-    import pdb; pdb.set_trace()
+    ## import pdb; pdb.set_trace()
     p_follow = follow_suit(p_peek, samples[:, on_play_i, :], trick_suit, spades_broken, n_trick_cards)
 
     return p_follow
@@ -400,11 +412,11 @@ def step_through_cardplay(auction_padded, played_cards):
 def get_h1_h2_nesw(on_play_i):
     h_1_nesw, h_2_nesw = -1, -1
     if on_play_i == 1: # lefty
-        h_1_nesw, h_2_nesw = 0, 3
+        h_1_nesw, h_2_nesw = 0, 2
     elif on_play_i == 2: # dummy
         h_1_nesw, h_2_nesw = 1, 3
     elif on_play_i == 3: # righty
-        h_1_nesw, h_2_nesw = 1, 0
+        h_1_nesw, h_2_nesw = 2, 0
     else: # declarer on play
         h_1_nesw, h_2_nesw = 3, 1
     
