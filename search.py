@@ -84,6 +84,8 @@ class Searcher:
                             results[sample_i] = op.results
                         else:
                             samples[sample_i, op.on_play_i, op.candidates[0]] = 0 # play the card
+                            ##print(f"IN SEARCH op.candidates[0]: {op.candidates[0]}")
+                            ##print(f"IN SEARCH samples JUSTE AFTER PLAYING CARDS op.candidates[0]: {samples}")
                             # push on the stack for later (we'll do this after recursive call with first candidate)
                             stack.append(ForeachCandidateEnd(op.on_play_i, op.current_trick, op.n_decl_tricks, op.depth, op.candidates, op.results))
                             # push recursive call on the stack
@@ -95,7 +97,7 @@ class Searcher:
                             ))
                         
                     elif isinstance(op, TrickComplete):
-                        trick_winner_i = (op.on_play_i + deck52.get_trick_winner_i(op.current_trick, 3)) % 4  # Spades is always trump
+                        trick_winner_i = (op.on_play_i + deck52.get_trick_winner_i(op.current_trick, 1)) % 4  # Spades is always trump
                         is_decl_win = (trick_winner_i % 2) == (on_play_i % 2)
                         stack.append(NewTrick(on_play_i=trick_winner_i, n_decl_tricks=op.n_decl_tricks + is_decl_win, depth=op.depth - 1))
 
@@ -156,22 +158,22 @@ class Searcher:
                     #### import pdb; pdb.set_trace()
                     ##import pdb; pdb.set_trace()
 
-                    if not candidates:
+                    ##if not candidates:
                         # Log relevant information when candidates are empty
-                        print(f"Warning: Candidates are empty for sample {i}")
-                        print(candidates)
-                        print(f"  valid_X: {valid_X}")
-                        print(f"  on_play_i: {whos_turn[i]}")
-                        print(f"  current_trick: {stacks[samples_to_play[i]][-1].current_trick}")
+                        ##print(f"Warning: Candidates are empty for sample {i}")
+                        ##print(candidates)
+                        ##print(f"  valid_X: {valid_X}")
+                        ##print(f"  on_play_i: {whos_turn[i]}")
+                        ##print(f"  current_trick: {stacks[samples_to_play[i]][-1].current_trick}")
                         ##print(f"  p_follow: {p_follow[i]}")  # Log the probabilities for debugging
                         ##print(f"i = {i}")
-                        print(f"X[i, :52]: {X[i, :52]}")
-                        print(f"X[i, 52:104]: {X[i, 52:104]}")
-                        print(f"X[i, 104:156]: {X[i, 104:156]}")
-                        print(f"X[i, 156:208]: {X[i, 156:208]}")
-                        print(f"samples[sample_i] : {samples[samples_to_play[i]]}")
-                        print(f"  n_trick_cards: {len(stacks[samples_to_play[i]][-1].current_trick)}")
-                        
+                        ##print(f"X[i, :52]: {X[i, :52]}")
+                        ##print(f"X[i, 52:104]: {X[i, 52:104]}")
+                        ##print(f"X[i, 104:156]: {X[i, 104:156]}")
+                        ##print(f"X[i, 156:208]: {X[i, 156:208]}")
+                        ##print(f"samples[sample_i] : {samples[samples_to_play[i]]}")
+                        ##print(f"  n_trick_cards: {len(stacks[samples_to_play[i]][-1].current_trick)}")
+
                         
 
                     

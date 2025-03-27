@@ -27,7 +27,9 @@ class Player:
         self.claim_info = None
         self.spades_broken = False  # Track if spades are broken
 
-    def play(self, hands_bin_nesw, auction_padded, played_cards):
+    def play(self, hands_bin_nesw, auction_padded, played_cards, pov, dealer):
+        np.set_printoptions(threshold=np.inf, linewidth=np.inf)
+
         ## import pdb; pdb.set_trace()
         self.claim_info = None
         assert len(played_cards) > 0
@@ -47,7 +49,7 @@ class Player:
             on_play_i,
             cards_played_by,
             shown_out_suits
-        ) = step_through_cardplay(auction_padded, played_cards)
+        ) = step_through_cardplay(auction_padded, played_cards, pov, dealer)
 
         # Check if spades are broken
         for trick in tricks:
@@ -89,17 +91,56 @@ class Player:
                 cards_played=[cards_played_by[h_1_nesw], cards_played_by[h_2_nesw]],
                 shown_out_suits=[shown_out_suits[h_1_nesw], shown_out_suits[h_2_nesw]],
             )
+            ##print(f"h1_h2: {h1_h2}")
 
             samples = np.zeros((h1_h2.shape[0], 4, 52), dtype=np.uint8)
             samples[:,on_play_i,:] = hand_bin
             samples[:,dummy_i,:] = hands_bin_nesw[dummy_i]
             samples[:,h_1_nesw,:] = h1_h2[:,0,:]
             samples[:,h_2_nesw,:] = h1_h2[:,1,:]
-            print("_: {}".format(_))
-            print("samples[:,on_play_i,:] : {}".format(samples[:,on_play_i,:]))
-            print("samples[:,dummy_i,:] : {}".format(samples[:,dummy_i,:]))
-            print("samples[:,h_1_nesw,:] : {}".format(samples[:,h_1_nesw,:]))
-            print("samples[:,h_2_nesw,:] : {}".format(samples[:,h_2_nesw,:]))
+
+            # Check for coherence in the samples
+            def is_coherent(samples):
+                n_samples = samples.shape[0]
+                for sample_idx in range(n_samples):
+                    # Combine all hands in the sample
+                    combined_hands = np.sum(samples[sample_idx], axis=0)
+                    
+                    # Check if any card is assigned to more than one player
+                    if np.any(combined_hands > 1):
+                        print(f"Incoherence in sample {sample_idx}: Card assigned to multiple hands.")
+                        print(f"Problematic sample:\n{samples[sample_idx]}")
+                        print(f"card: {np.argmax(combined_hands)}")
+
+                        # Print the value at argmax for each hand
+                        argmax_card = np.argmax(combined_hands)
+                        for player_idx in range(4):
+                            print(f"Player {player_idx} hand value at card {argmax_card}: {samples[sample_idx, player_idx, argmax_card]}")
+
+                        return sample_idx, "already in another hand", samples[sample_idx]
+                
+                # If no incoherence is found
+                return None, None, None
+
+            # Add the print statement
+            sample_id, incoherence_type, problematic_sample = is_coherent(samples)
+            if sample_id is not None:
+                print(f"Sample {sample_id} has an incoherence of type '{incoherence_type}'.")
+                print(f"played_cards: {played_cards}")
+                print(f"cards_played_by: {cards_played_by}")
+                print(f"pov: {pov}")
+                print(f"h_1_nesw : {h_1_nesw}")
+                print(f"h_2_nesw : {h_2_nesw}")
+                print(f"cards_played_by[h_1_nesw] : {cards_played_by[h_1_nesw]}")
+                print(f"cards_played_by[h_2_nesw] : {cards_played_by[h_2_nesw]}")
+            else:
+                print("Samples are coherent.")
+
+            ##print("_: {}".format(_))
+            ##print("samples[:,on_play_i,:] : {}".format(samples[:,on_play_i,:]))
+            ##print("samples[:,dummy_i,:] : {}".format(samples[:,dummy_i,:]))
+            ##print("samples[:,h_1_nesw,:] : {}".format(samples[:,h_1_nesw,:]))
+            ##print("samples[:,h_2_nesw,:] : {}".format(samples[:,h_2_nesw,:]))
 
             samples_bid_batch, _, _ = sample_accept_auction(
                 samples,
@@ -108,13 +149,14 @@ class Player:
                 auction_padded=auction_padded,
                 bidder_model=self.models.bidder_model
             )
-            print("samples_bid_batch: {}".format(samples_bid_batch))
+            ##print("samples_bid_batch: {}".format(samples_bid_batch))
             samples_bid_batches.append(samples_bid_batch)
 
         samples_bid = np.concatenate(samples_bid_batches)
+        ##print(f"samples_bid JUSTE AFTER FOR LOOP : {samples_bid}")
         ## import pdb; pdb.set_trace()
 
-        print(f'{samples_bid.shape[0]} samples')
+        ##print(f'{samples_bid.shape[0]} samples')
 
         n_dd_samples = self.n_samples
 
@@ -125,6 +167,8 @@ class Player:
         for nesw_i, cards_played in enumerate(cards_played_by):
             samples_bid[:, nesw_i, cards_played] -= 1
         
+        ##print(f"samples_bid JUSTE AFTER REMOVING PLAYED CARDS : {samples_bid}")
+
         trick_np = np.zeros((samples_bid.shape[0], 4), dtype=np.uint16)
         for i, card in enumerate(current_trick):
             trick_np[:,i] = card 
@@ -200,7 +244,7 @@ class Player:
         
         for k, card in enumerate(played_cards):
             if len(trick) == 4:
-                trick_winner_i = (trick_leader_i + deck52.get_trick_winner_i(trick, 3)) % 4
+                trick_winner_i = (trick_leader_i + deck52.get_trick_winner_i(trick, 1)) % 4
                 on_play_i = trick_winner_i
                 trick = []
                 trick_leader_i = on_play_i
@@ -225,85 +269,57 @@ class Player:
         return weights
 
     
-    def opening_lead(self, hands_bin_nesw, auction_padded):
+    def opening_lead(self, hands_bin_nesw, pov):
+        """
+        Determines the opening lead for a round in Spades.
+
+        Args:
+            hands_bin_nesw: A binary representation of the hands for all players (NESW).
+            pov: The point of view (player) making the opening lead (e.g., 'N', 'E', 'S', 'W').
+
+        Returns:
+            The card symbol of the chosen opening lead.
+        """
+        ## TO DO : Add also the logic that take into account the bidding to choose the best candidate
         self.claim_info = None
         np.random.seed(1337)
 
-        on_play_i = (len(auction_padded) + 1) % 4
+        # Determine the player on play based on pov
+        on_play_i = 'NESW'.index(pov)
 
-        if (len(auction_padded) - 1) % 4 == on_play_i:
-            auction_lead = auction_padded[:-1]
-        else:
-            auction_lead = auction_padded + [15]  # Replace 'PAD_END' with 15
+        # Get the binary representation of the hand for the player on play
+        hand_bin = hands_bin_nesw[on_play_i]
 
-        lho_pard_rho = sample_cards_auction(1024, auction_lead, on_play_i, hands_bin_nesw[on_play_i], self.models.bidder_model, self.models.binfo)
-        n_samples = lho_pard_rho.shape[0]
+        # Convert the binary hand to a list of card indices
+        cards_in_hand = binary.get_cards_from_binary_hand(hand_bin.reshape(52))
 
-        # get card scores from peekplay
-        X = np.zeros((n_samples, 369))
-        
-        X[:, :52] = hands_bin_nesw[on_play_i]
-        X[:, 52:104] = lho_pard_rho[:, 0, :]
-        X[:, 104:156] = lho_pard_rho[:, 1, :]
-        X[:, 156:208] = lho_pard_rho[:, 2, :]
-        
+        # Ensure Spades logic: Spades cannot be led unless Spades are broken
+        if not self.spades_broken:
+            non_spades_cards = [card for card in cards_in_hand if card // 13 != 3]  # Exclude Spades
+            if non_spades_cards:
+                cards_in_hand = non_spades_cards  # Restrict to non-Spades if available
+
+        # Evaluate the best card to lead using the peekplay model
+        X = np.zeros((1, 369))  # Input for the model
+        X[0, :52] = hand_bin  # Player's hand
+
+        # Predict scores for each card using the lead model
         p_peek = self.models.lead.model(X)
-        p_peek = p_peek * hands_bin_nesw[on_play_i]
-        p_peek = p_peek / p_peek.sum(axis=1, keepdims=True)
-        peek_scores = np.mean(p_peek, axis=0)
+        p_peek = p_peek * hand_bin  # Mask out cards not in the player's hand
+        p_peek = p_peek / p_peek.sum(axis=1, keepdims=True)  # Normalize probabilities
 
-        candidate_cards = (peek_scores * (peek_scores > 0.1)).nonzero()[0]
+        # Filter candidate cards based on probabilities
+        peek_scores = p_peek[0]
+        candidate_cards = [(peek_scores[card], card) for card in cards_in_hand if peek_scores[card] > 0.01]
 
-        hands_np = np.zeros((n_samples, 4, 52), dtype=np.uint8)    
-        hands_np[:,0,:] = hands_bin_nesw[on_play_i] # leader. this is us
-        hands_np[:,1,:] = lho_pard_rho[:,0,:] # dummy
-        hands_np[:,2,:] = lho_pard_rho[:,1,:] # 3rd hand defender
-        hands_np[:,3,:] = lho_pard_rho[:,2,:] # declr
+        # Sort candidates by score in descending order
+        candidate_cards = sorted(candidate_cards, reverse=True)
 
-        hands32 = hands_bin_52_to_32(hands_np)
+        # Select the best card to lead
+        best_card = candidate_cards[0][1] if candidate_cards else cards_in_hand[0]
 
-        X_sd = np.zeros((n_samples, 32 + 5 + 4*32))
-
-        # lefty
-        X_sd[:,(32 + 5 + 0*32):(32 + 5 + 1*32)] = hands32[:, 0]
-        # dummy
-        X_sd[:,(32 + 5 + 1*32):(32 + 5 + 2*32)] = hands32[:, 1]
-        # righty
-        X_sd[:,(32 + 5 + 2*32):(32 + 5 + 3*32)] = hands32[:, 2]
-        # declarer
-        X_sd[:,(32 + 5 + 3*32):] = hands32[:, 3]
-
-        cand_ev = {}
-
-        for card in candidate_cards:
-            suit = card // 13
-            rank = min(7, card % 13)
-            card32 = suit * 8 + rank
-            
-            X_sd[:, :32] = 0
-            X_sd[:, card32] = 1
-
-            decl_tricks_softmax = self.models.sd_model.model(X_sd)
-
-            expected_tricks = np.mean(decl_tricks_softmax @ np.arange(14))
-
-            card_symbol = Card.from_code(card).symbol()
-
-            sys.stderr.write(f'lead cand {card_symbol} score={peek_scores[card]} exp_tricks={expected_tricks}\n')
-
-            expected_value = expected_tricks
-            factor = 5
-            cand_ev[card_symbol] = (
-                expected_value
-                +
-                (1 - peek_scores[card]) / factor
-            )
-
-        sorted_cards = sorted([(ev, card) for card, ev in cand_ev.items()])
-        
-        _, card = sorted_cards[0]
-
-        return card
+        # Return the card symbol for the chosen card
+        return Card.from_code(best_card).symbol()
 
 
 def play_next_card(playmodel, samples, current_trick, on_play_i, spades_broken):
@@ -373,8 +389,8 @@ class Bidder:
 
         return candidates
     
-
-def step_through_cardplay(auction_padded, played_cards):
+"""
+def step_through_cardplay(auction_padded, played_cards, pov):
     ## import pdb; pdb.set_trace()
     tricks = []
     trick_leaders = []
@@ -382,8 +398,62 @@ def step_through_cardplay(auction_padded, played_cards):
     current_trick = []
     cards_played_by = [[], [], [], []]  # nesw
     shown_out_suits = [set(), set(), set(), set()]  # nesw
+    j = 0
 
-    on_play_i = 0
+    ## on_play_i = 0
+    on_play_i = -1
+    for card_symbol in played_cards:
+        card = Card.from_symbol(card_symbol).code()
+
+        if current_trick and current_trick[0] // 13 != card // 13:
+            shown_out_suits[on_play_i].add(current_trick[0] // 13)
+        
+        ##cards_played_by[(on_play_i - len(played_cards) + j) % 4].append(card)
+        ##j+=1
+
+        if len(played_cards) < 4:
+            on_play_i = ('NESW'.index(pov) - len(played_cards)) % 4
+            cards_played_by[on_play_i].append(card)
+
+        elif len(played_cards) >= 4:
+            on_play_i = 
+
+
+        current_trick.append(card)
+        
+
+
+        if len(current_trick) == 4:
+            tricks.append(current_trick)
+
+            trick_leader_i = (on_play_i + 1) % 4
+            trick_leaders.append(trick_leader_i)
+
+            trick_winner_i = (trick_leader_i + deck52.get_trick_winner_i(current_trick, 1)) % 4  # Spades is always trump
+            trick_winners.append(trick_winner_i)
+
+            on_play_i = trick_winner_i
+            current_trick = []
+        else:
+           on_play_i = (on_play_i + 1) % 4
+    
+    return tricks, trick_leaders, trick_winners, current_trick, on_play_i, cards_played_by, shown_out_suits
+"""
+
+
+def step_through_cardplay(auction_padded, played_cards, pov, dealer):
+    tricks = []
+    trick_leaders = []
+    trick_winners = []
+    current_trick = []
+    cards_played_by = [[], [], [], []]  # nesw
+    shown_out_suits = [set(), set(), set(), set()]  # nesw
+
+    ##contract = bidding.get_contract(auction_padded)
+    ##strain_i = bidding.get_strain_i(contract)
+    ##ecl_i = bidding.get_decl_i(contract)
+
+    on_play_i = ('NESW'.index(dealer) + 1) % 4
     for card_symbol in played_cards:
         card = Card.from_symbol(card_symbol).code()
 
@@ -399,7 +469,7 @@ def step_through_cardplay(auction_padded, played_cards):
             trick_leader_i = (on_play_i + 1) % 4
             trick_leaders.append(trick_leader_i)
 
-            trick_winner_i = (trick_leader_i + deck52.get_trick_winner_i(current_trick, 3)) % 4  # Spades is always trump
+            trick_winner_i = (trick_leader_i + deck52.get_trick_winner_i(current_trick, 1)) % 4  # Spades is always trump
             trick_winners.append(trick_winner_i)
 
             on_play_i = trick_winner_i
@@ -408,6 +478,7 @@ def step_through_cardplay(auction_padded, played_cards):
             on_play_i = (on_play_i + 1) % 4
     
     return tricks, trick_leaders, trick_winners, current_trick, on_play_i, cards_played_by, shown_out_suits
+
 
 def get_h1_h2_nesw(on_play_i):
     h_1_nesw, h_2_nesw = -1, -1

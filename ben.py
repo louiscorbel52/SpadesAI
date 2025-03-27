@@ -18,7 +18,7 @@ class Ben:
         if played_cards:
             if len(played_cards) >= 52:
                 return None
-            card = self.player.play(hands_bin_nesw, auction_padded, played_cards)
+            card = self.player.play(hands_bin_nesw, auction_padded, played_cards, pov, dealer)
             return card
 
         if not bidding.auction_over(auction_padded):
@@ -26,7 +26,7 @@ class Ben:
             return bid
         
         if bidding.auction_over(auction_padded):
-            card = self.player.opening_lead(hands_bin_nesw, auction_padded)
+            card = self.player.opening_lead(hands_bin_nesw, pov)
             return card
 
 

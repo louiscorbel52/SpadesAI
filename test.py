@@ -17,6 +17,7 @@ models = Models.from_conf(conf.load('default.conf'))
 def main():
     hands_str_nesw = deck52.random_deal().split()
     dealer = random.choice('NESW')
+    print(f'#########################################################Dealer###########################################################: {dealer}')
     
     ## auction_padded = [14] * 'NESW'.index(dealer)  # Replace 'PAD_START' with 14
     auction_padded = [14] * 4  # Replace 'PAD_START' with 14
@@ -41,7 +42,7 @@ def main():
         ## import pdb; pdb.set_trace()
 
         if len(current_trick) == 4:
-            trick_winner_i = (turn_i + deck52.get_trick_winner_i(current_trick, 3)) % 4  # Spades is always trump
+            trick_winner_i = (turn_i + deck52.get_trick_winner_i(current_trick, 1)) % 4  # Spades is always trump
             current_trick = []
             turn_i = trick_winner_i
 
