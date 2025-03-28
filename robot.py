@@ -185,7 +185,7 @@ class Player:
         
         ##import pdb; pdb.set_trace()
         p_card = follow_suit(peek_scores.reshape((1, -1)), samples_bid[0, on_play_i].reshape((1, 52)), trick_suit, self.spades_broken, len(current_trick))
-        candidates = [(p_card[0, c], c) for c in np.nonzero(p_card[0])[0] if p_card[0, c] >= 0.00001]  # TODO: magic number
+        candidates = [(p_card[0, c], c) for c in np.nonzero(p_card[0])[0] if p_card[0, c] >= 0.01]  # TODO: magic number
         if not candidates:
             candidates = [(p_card[0, c], c) for c in np.nonzero(p_card[0])[0]]
         candidates = sorted(candidates, reverse=True)
@@ -238,6 +238,8 @@ class Player:
             search_results = search_results_vec
 
             sorted_cards = []
+            debug_sorted_cards = []
+            """
             for c, vals in search_results.items():
                 e_tricks = n_tricks_def_decl[1] + np.array(vals) if is_maximizer else 13 - n_tricks_def_decl[1] - np.array(vals)
                 e_vals = e_tricks
@@ -246,27 +248,43 @@ class Player:
                     e_vals @ weights_play + w_insta_factor * p_card[0, c], c
                 ))
             """
+
+            
             for c, vals in search_results.items():
                 if is_risky_bool:
-                    print('pov: {pov} is risky')
+                    print(f"pov : {pov} is risky")
                     # Use the maximum number of tricks for the card across all samples
                     max_tricks = n_tricks_def_decl[1] + np.max(vals) if is_maximizer else 13 - n_tricks_def_decl[1] - np.min(vals)
                     e_vals = max_tricks
+                    w_insta_factor = 0.5
+                    sorted_cards.append((
+                        e_vals + w_insta_factor * p_card[0, c], c
+                    ))
+                    print(f"e_vals + w_insta_factor * p_card[0, c], c: {e_vals + w_insta_factor * p_card[0, c], c}")
+                    debug_e_tricks = n_tricks_def_decl[1] + np.array(vals) if is_maximizer else 13 - n_tricks_def_decl[1] - np.array(vals)
+                    debug_e_vals = debug_e_tricks
+                    w_insta_factor = 0.5
+                    debug_sorted_cards.append((
+                        debug_e_vals @ weights_play + w_insta_factor * p_card[0, c], c
+                    ))
+                    print(f"debug_e_vals @ weights_play + w_insta_factor * p_card[0, c], c: {debug_e_vals @ weights_play + w_insta_factor * p_card[0, c], c}")
+
                 else:
                     # Use the weighted mean expected tricks for the card across all samples
                     e_tricks = n_tricks_def_decl[1] + np.array(vals) if is_maximizer else 13 - n_tricks_def_decl[1] - np.array(vals)
-                    e_vals = e_tricks @ weights_play
-
-                # Add a weighted factor for instant play probabilities
-                w_insta_factor = 0.5
-                sorted_cards.append((
-                    e_vals + w_insta_factor * p_card[0, c], c
-                ))
-            """
+                    e_vals = e_tricks
+                    w_insta_factor = 0.5
+                    sorted_cards.append((
+                        e_vals @ weights_play + w_insta_factor * p_card[0, c], c
+                    ))
+                
+            
             sorted_cards = [(v, k) for k, v in sorted(sorted_cards, reverse=True)]
+            debug_sorted_cards = [(v, k) for k, v in sorted(debug_sorted_cards, reverse=True)]
             #sorted_cards = [(v, k) for k, v in sorted(sorted_cards, reverse=(current_pov_bid != 0))]
 
             print('search sorted_cards:', sorted_cards)
+            print('debug_sorted_cards:', debug_sorted_cards)
 
             search_scores = dict(sorted_cards)
             
