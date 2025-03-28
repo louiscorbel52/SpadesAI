@@ -7,7 +7,7 @@ class Ben:
         self.bidder = bidder
         self.player = player
 
-    def call(self, pov, dealer, hands_str_nesw, auction_padded, played_cards, scoring):
+    def call(self, pov, dealer, hands_str_nesw, auction_padded, played_cards, is_sandbag_on, is_dumb, is_risky, scoring):
         hands_bin_nesw = []
         for hand_str in hands_str_nesw:
             if hand_str is None:
@@ -18,11 +18,12 @@ class Ben:
         if played_cards:
             if len(played_cards) >= 52:
                 return None
-            card = self.player.play(hands_bin_nesw, auction_padded, played_cards, pov, dealer)
+            card = self.player.play(hands_bin_nesw, auction_padded, played_cards, pov, dealer, is_sandbag_on, is_dumb, is_risky)
             return card
 
         if not bidding.auction_over(auction_padded):
-            bid = self.bidder.bid(hands_bin_nesw, auction_padded)
+            ##bid = self.bidder.bid(hands_bin_nesw, auction_padded, dealer)
+            bid = self.bidder.bid_spades(hands_bin_nesw, auction_padded, dealer)
             return bid
         
         if bidding.auction_over(auction_padded):

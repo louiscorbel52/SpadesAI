@@ -10,7 +10,7 @@ class Searcher:
         self.playmodel = playmodel
         self.evalmodel = evalmodel
 
-    def search(self, samples, candidates, on_play_i, current_trick, n_decl_tricks, depth, search_for, spades_broken):
+    def search(self, samples, candidates, on_play_i, current_trick, n_decl_tricks, depth, search_for, spades_broken, auction_padded, dealer, is_sandbag_on_bool):
         n_samples = samples.shape[0]
 
         # create a stack for each sample and put the initial operation on the stack
@@ -27,6 +27,7 @@ class Searcher:
             ] 
             for sample in samples
         ]
+        ##import pdb; pdb.set_trace()
 
         # this will have the result for each sample in the end
         results = [None] * n_samples
@@ -65,7 +66,25 @@ class Searcher:
 
                     elif isinstance(op, ForeachCandidateEnd):
                         samples[sample_i, op.on_play_i, op.candidates[0]] = 1 # unplay the card
-                        is_maximizer = (on_play_i % 2) == (op.on_play_i % 2)
+                        ##is_maximizer = (on_play_i % 2) == (op.on_play_i % 2)
+                        
+                        # Reconstruct bids from auction_padded
+                        bids = [int(bid) if bid != 14 else 0 for bid in auction_padded]  # Replace '14' (PASS) with 0
+
+                        # Calculate the position of op.on_play_i in the bidding order
+                        bidding_position = (op.on_play_i - ('NESW'.index(dealer) + 1)) % 4
+                        
+                        # Get the bid for the current POV (on_play_i)
+                        current_pov_bid = bids[bidding_position]
+
+                        # Calculate the combined bids for the current POV team
+                        team_bids = sum(bids[(('NESW'.index(dealer) + 1 + i) % 4)] for i in range(4) if i % 2 == bidding_position % 2)
+
+                        # Determine if the current player is a maximizer
+                        is_maximizer = True  # Default to True
+                        if (is_sandbag_on_bool and op.n_decl_tricks >= team_bids) or (current_pov_bid == 0):
+                            is_maximizer = False
+
                         _, score = sorted(results[sample_i].items(), key=lambda x: x[1], reverse=not is_maximizer)[0]
                         cand_res = {op.candidates[0]: score, **op.results}
                         stack.append(
@@ -97,7 +116,7 @@ class Searcher:
                             ))
                         
                     elif isinstance(op, TrickComplete):
-                        trick_winner_i = (op.on_play_i + deck52.get_trick_winner_i(op.current_trick, 1)) % 4  # Spades is always trump
+                        trick_winner_i = (op.on_play_i + deck52.get_trick_winner_i(op.current_trick)) % 4  # Spades is always trump
                         is_decl_win = (trick_winner_i % 2) == (on_play_i % 2)
                         stack.append(NewTrick(on_play_i=trick_winner_i, n_decl_tricks=op.n_decl_tricks + is_decl_win, depth=op.depth - 1))
 
@@ -120,6 +139,7 @@ class Searcher:
             if samples_to_play:
                 ## import pdb; pdb.set_trace()
                 X = np.zeros((len(samples_to_play), 369))
+                X[:, 365] = 1
                 trick_suit = np.zeros((len(samples_to_play), 4), dtype=np.uint8)
                 whos_turn = []
                 for i, sample_i in enumerate(samples_to_play):
@@ -165,6 +185,8 @@ class Searcher:
                         ##print(f"  valid_X: {valid_X}")
                         ##print(f"  on_play_i: {whos_turn[i]}")
                         ##print(f"  current_trick: {stacks[samples_to_play[i]][-1].current_trick}")
+                        ##print(f"trick_suit[i]: {stacks[samples_to_play[i]][-1].trick_suit}")
+                        ##print(f"  spades_broken: {spades_broken}")
                         ##print(f"  p_follow: {p_follow[i]}")  # Log the probabilities for debugging
                         ##print(f"i = {i}")
                         ##print(f"X[i, :52]: {X[i, :52]}")
@@ -173,6 +195,16 @@ class Searcher:
                         ##print(f"X[i, 156:208]: {X[i, 156:208]}")
                         ##print(f"samples[sample_i] : {samples[samples_to_play[i]]}")
                         ##print(f"  n_trick_cards: {len(stacks[samples_to_play[i]][-1].current_trick)}")
+
+                    ## TO DO : Pass the spades_broken info recursively to avoid all together this fall back
+                    if not candidates:
+                        # Check if X[i, :52] contains Spades cards (indices 0–12)
+                        spades_indices = np.nonzero(X[i, :13])[0]  # Spades are in the range 0–12
+                        if len(spades_indices) > 0:
+                            # Select the strongest Spade (lowest index)
+                            strongest_spade = spades_indices[0]
+                            candidates = [(1.0, strongest_spade)]  # Assign a high probability to the strongest Spade
+
 
                         
 

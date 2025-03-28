@@ -35,7 +35,7 @@ async def validation_exception_handler(request, exc):
     return Response(content=ERROR_XML, media_type='application/xml')
 
 @app.get('/u_bm/robot.php')
-async def robot(pov: str, d: str, n: str, e: str, s: str, w: str, h: str, sc: str = 'MP', botstyle: str = 'advanced'):
+async def robot(pov: str, d: str, n: str, e: str, s: str, w: str, h: str, b: str, dumb: str, risky: str, sc: str = 'MP', botstyle: str = 'advanced'):
     pov = pov.upper()
     dealer = d.upper()
     sc = sc.upper()
@@ -43,12 +43,15 @@ async def robot(pov: str, d: str, n: str, e: str, s: str, w: str, h: str, sc: st
     ben_bot = bots_conf.get(botstyle, bots_conf['advanced'])
     print(sc)
     auction_padded, played_cards = parse_history(dealer, h)
+    is_sandbag_on = b.upper()
+    is_dumb = dumb.upper()
+    is_risky = risky.upper()
 
     hands_str_nesw = [n.upper(), e.upper(), s.upper(), w.upper()]
     
     move = None
     if not bidding.auction_over(auction_padded):
-        move = ben_bot.call(pov, dealer, hands_str_nesw, auction_padded, played_cards, sc)
+        move = ben_bot.call(pov, dealer, hands_str_nesw, auction_padded, played_cards, is_sandbag_on, is_dumb, is_risky, sc)
         bid = move.replace('PASS', 'P')
         meaning = '?'
 
@@ -59,7 +62,7 @@ async def robot(pov: str, d: str, n: str, e: str, s: str, w: str, h: str, sc: st
         )
 
     if not move:
-        move = ben_bot.call(pov, dealer, hands_str_nesw, auction_padded, played_cards, sc)
+        move = ben_bot.call(pov, dealer, hands_str_nesw, auction_padded, played_cards, is_sandbag_on, is_dumb, is_risky, sc)
 
     return Response(
         content=PLAY_XML.format(pov=pov, d=d, n=n, e=e, s=s, w=w, h=h, card=move),

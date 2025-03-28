@@ -27,7 +27,7 @@ class Player:
         self.claim_info = None
         self.spades_broken = False  # Track if spades are broken
 
-    def play(self, hands_bin_nesw, auction_padded, played_cards, pov, dealer):
+    def play(self, hands_bin_nesw, auction_padded, played_cards, pov, dealer, is_sandbag_on, is_dumb, is_risky):
         np.set_printoptions(threshold=np.inf, linewidth=np.inf)
 
         ## import pdb; pdb.set_trace()
@@ -35,6 +35,9 @@ class Player:
         assert len(played_cards) > 0
 
         np.random.seed(1337)
+        is_sandbag_on_bool = is_sandbag_on == 'T'
+        is_risky_bool = is_risky == 'T'
+        is_dumb_degree = int(is_dumb)
 
         # Ensure auction_padded only contains valid bids
         ## auction_padded = [bid for bid in auction_padded and 0 <= int(bid) <= 13]
@@ -53,7 +56,7 @@ class Player:
 
         # Check if spades are broken
         for trick in tricks:
-            if any(card // 13 == 3 for card in trick):
+            if any(card // 13 == 0 for card in trick):
                 self.spades_broken = True
 
         n_tricks_def_decl = [0, 0]
@@ -182,7 +185,7 @@ class Player:
         
         ##import pdb; pdb.set_trace()
         p_card = follow_suit(peek_scores.reshape((1, -1)), samples_bid[0, on_play_i].reshape((1, 52)), trick_suit, self.spades_broken, len(current_trick))
-        candidates = [(p_card[0, c], c) for c in np.nonzero(p_card[0])[0] if p_card[0, c] >= 0.01]  # TODO: magic number
+        candidates = [(p_card[0, c], c) for c in np.nonzero(p_card[0])[0] if p_card[0, c] >= 0.00001]  # TODO: magic number
         if not candidates:
             candidates = [(p_card[0, c], c) for c in np.nonzero(p_card[0])[0]]
         candidates = sorted(candidates, reverse=True)
@@ -191,13 +194,34 @@ class Player:
         peek_card = candidates[0]
         card = peek_card
 
-        is_maximizer = False
-        if (on_play_i % 2) == (on_play_i % 2):
-            is_maximizer = True
+        ##is_maximizer = False
+        ##if (on_play_i % 2) == (on_play_i % 2):
+        ##    is_maximizer = True
+
+        ##is_maximizer = True
+
+        # Determine if the current player is a maximizer
+        is_maximizer = True  # Default to True
+
+        # Reconstruct bids from auction_padded
+        bids = [int(bid) if bid != 14 else 0 for bid in auction_padded]  # Replace '14' (PASS) with 0
+
+        # Calculate the position of on_play_i in the bidding order
+        bidding_position = (on_play_i - ('NESW'.index(dealer) + 1)) % 4
+
+        # Get the bid for the current POV (on_play_i)
+        current_pov_bid = bids[bidding_position]
+
+        # Calculate the combined bids for the current POV team
+        team_bids = sum(bids[(('NESW'.index(dealer) + 1 + i) % 4)] for i in range(4) if i % 2 == bidding_position % 2)
+
+        # Check if the current team's tricks gained already exceed their combined bids
+        if (is_sandbag_on_bool and n_tricks_def_decl[1] >= team_bids) or (current_pov_bid == 0):
+            is_maximizer = False
 
         search_scores = {}
         ## import pdb; pdb.set_trace()
-        if self.search and len(candidates) > 1:
+        if self.search and (len(candidates) > 1 or current_pov_bid == 0):
              
             search_results_vec = defaultdict(list)
             search_results = defaultdict(list)
@@ -206,7 +230,7 @@ class Player:
             sample_results_vec = []
             t_start = time.time()
             ## import pdb; pdb.set_trace()
-            sample_results_vec = searcher.search(samples_bid[:n_dd_samples], candidates, on_play_i, current_trick, 0, 13, search_for, self.spades_broken)
+            sample_results_vec = searcher.search(samples_bid[:n_dd_samples], candidates, on_play_i, current_trick, 0, 13, search_for, self.spades_broken, auction_padded, dealer, is_sandbag_on_bool)
             print(f'search took {time.time() - t_start} seconds')
             for s_result in sample_results_vec:
                 for card, ev in s_result.items():
@@ -221,12 +245,37 @@ class Player:
                 sorted_cards.append((
                     e_vals @ weights_play + w_insta_factor * p_card[0, c], c
                 ))
+            """
+            for c, vals in search_results.items():
+                if is_risky_bool:
+                    print('pov: {pov} is risky')
+                    # Use the maximum number of tricks for the card across all samples
+                    max_tricks = n_tricks_def_decl[1] + np.max(vals) if is_maximizer else 13 - n_tricks_def_decl[1] - np.min(vals)
+                    e_vals = max_tricks
+                else:
+                    # Use the weighted mean expected tricks for the card across all samples
+                    e_tricks = n_tricks_def_decl[1] + np.array(vals) if is_maximizer else 13 - n_tricks_def_decl[1] - np.array(vals)
+                    e_vals = e_tricks @ weights_play
+
+                # Add a weighted factor for instant play probabilities
+                w_insta_factor = 0.5
+                sorted_cards.append((
+                    e_vals + w_insta_factor * p_card[0, c], c
+                ))
+            """
             sorted_cards = [(v, k) for k, v in sorted(sorted_cards, reverse=True)]
+            #sorted_cards = [(v, k) for k, v in sorted(sorted_cards, reverse=(current_pov_bid != 0))]
 
             print('search sorted_cards:', sorted_cards)
 
             search_scores = dict(sorted_cards)
-            best_card, _ = sorted_cards[0]
+            
+            print('is_dumb_degree:', is_dumb_degree)
+            print('len(sorted_cards):', len(sorted_cards))
+            if is_dumb_degree < len(sorted_cards):
+                best_card, _ = sorted_cards[is_dumb_degree]
+            else:
+                best_card, _ = sorted_cards[-1]  # Default to the highest index of sorted_cards
             card = best_card
 
         return Card.from_code(card).symbol()
@@ -244,7 +293,7 @@ class Player:
         
         for k, card in enumerate(played_cards):
             if len(trick) == 4:
-                trick_winner_i = (trick_leader_i + deck52.get_trick_winner_i(trick, 1)) % 4
+                trick_winner_i = (trick_leader_i + deck52.get_trick_winner_i(trick)) % 4
                 on_play_i = trick_winner_i
                 trick = []
                 trick_leader_i = on_play_i
@@ -295,7 +344,7 @@ class Player:
 
         # Ensure Spades logic: Spades cannot be led unless Spades are broken
         if not self.spades_broken:
-            non_spades_cards = [card for card in cards_in_hand if card // 13 != 3]  # Exclude Spades
+            non_spades_cards = [card for card in cards_in_hand if card // 13 != 0]  # Exclude Spades
             if non_spades_cards:
                 cards_in_hand = non_spades_cards  # Restrict to non-Spades if available
 
@@ -324,6 +373,7 @@ class Player:
 
 def play_next_card(playmodel, samples, current_trick, on_play_i, spades_broken):
     X = np.zeros((samples.shape[0], 369))
+    X[:, 365] = 1
     n_trick_cards = len(current_trick)
     if n_trick_cards > 0:
         X[:, 312 + current_trick[n_trick_cards - 1]] = 1
@@ -369,7 +419,98 @@ class Bidder:
         for cand in candidates_sorted:
             print(cand.to_dict())
         
+        #import pdb; pdb.set_trace()
+        
         return candidates_sorted[0].bid
+    
+    def bid_spades(self, hands_bin_nesw, auction_padded, dealer):
+        """
+        Calculates the bid value for Spades based on the given criteria.
+
+        Args:
+            hands_bin_nesw: Binary representation of the hands for all players (NESW).
+            auction_padded: List representing the auction history.
+            dealer: The player who dealt the cards ('N', 'E', 'S', 'W').
+
+        Returns:
+            The calculated bid value as a string.
+        """
+        # Determine which hand is concerned based on the dealer and auction_padded
+        ##num_passes = auction_padded.count(14)
+        hand_ix = ('NESW'.index(dealer) + len(auction_padded) + 1) % 4
+        hand_bin = hands_bin_nesw[hand_ix]
+
+        # Convert the binary hand to a list of card indices
+        cards_in_hand = binary.get_cards_from_binary_hand(hand_bin.reshape(52))
+
+        # Initialize bid value
+        bid_value = 0
+
+        # Count tricks for non-trump suits
+        for suit in range(4):  # Iterate over suits 
+            suit_cards = [card for card in cards_in_hand if card // 13 == suit]
+            suit_length = len(suit_cards)
+
+            # Evaluate non-trump suits
+            if suit != 0:  # Non-trump suits
+                if 13 * suit in suit_cards:  # Ace
+                    if suit_length < 7:
+                        bid_value += 1
+                    elif suit_length in [7, 8]:
+                        bid_value += 0.5
+
+                if (13 * suit) + 1 in suit_cards:  # King
+                    if suit_length == 1:
+                        bid_value += 0.25
+                    elif suit_length in [2, 3, 4]:
+                        bid_value += 0.75
+                    elif suit_length == 5:
+                        bid_value += 0.25
+                    if suit_length < 6 and any(face in suit_cards for face in [0, 2, 3]):  # Ace, Queen, or Jack
+                        bid_value += 0.25
+
+                if (13 * suit) + 2 in suit_cards:  # Queen
+                    if suit_length <= 5:
+                        bid_value += 0.25
+                    if all(face in suit_cards for face in [0, 1, 2]):  # AKQ
+                        bid_value += 0.25
+
+        # Evaluate trump suit (Spades)
+        spades = [card for card in cards_in_hand if card // 13 == 0]  # Spades is now the first suit (index 0)
+        spades_length = len(spades)
+
+        if spades_length == 3 and min(spades) == 2:  # Q of Spades (adjusted for index 0)
+            bid_value += 1
+        if spades_length == 2 and min(spades) == 1:  # K of Spades (adjusted for index 0)
+            bid_value += 1
+        if 0 in spades:  # Ace of Spades (adjusted for index 0)
+            bid_value += 1
+        if spades_length >= 4:
+            bid_value += 1
+        if spades_length >= 5:
+            bid_value += 0.5
+        if spades_length >= 6:
+            bid_value += 0.5
+        if spades_length >= 7:
+            bid_value += spades_length - 6  # Add 1 trick for each additional Spade beyond 6
+
+        # Evaluate short non-trump suits
+        for suit in range(1, 4):  # Non-trump suits only
+            suit_cards = [card for card in cards_in_hand if card // 13 == suit]
+            if len(suit_cards) == 0:  # Void
+                bid_value += 1
+            elif len(suit_cards) == 1:  # Singleton
+                bid_value += 1
+
+        # Decrease 1 trick for having less than 2 Spades
+        if spades_length < 2:
+            bid_value -= 1
+
+        # Ensure bid value is at least 0
+        bid_value = max(0, int(round(bid_value)))
+
+        #import pdb; pdb.set_trace()
+        return str(bid_value)
     
     def get_bid_candidates(self, hand_bin, auction_padded):
         n_steps = get_n_steps_auction(auction_padded)
@@ -469,7 +610,7 @@ def step_through_cardplay(auction_padded, played_cards, pov, dealer):
             trick_leader_i = (on_play_i + 1) % 4
             trick_leaders.append(trick_leader_i)
 
-            trick_winner_i = (trick_leader_i + deck52.get_trick_winner_i(current_trick, 1)) % 4  # Spades is always trump
+            trick_winner_i = (trick_leader_i + deck52.get_trick_winner_i(current_trick)) % 4  # Spades is always trump
             trick_winners.append(trick_winner_i)
 
             on_play_i = trick_winner_i

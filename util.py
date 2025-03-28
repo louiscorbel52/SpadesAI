@@ -32,11 +32,9 @@ def to_bbo_hand(hand):
     suits = hand.split('.')
     return f's{suits[0]}h{suits[1]}d{suits[2]}c{suits[3]}'
 
-def to_bbo_handviewer(hands_str_nesw, auction_padded, cards_played):
-    dealer = 'NESW'[bidding.get_dealer_i(auction_padded)]
-    auction_bbo = '-'.join(map(str, auction_padded)).replace('PASS', 'P').replace('14', '').replace('-', '')  # Replace 'PAD_START' with 14
+def to_bbo_handviewer(hands_str_nesw, auction_padded, cards_played, dealer):
     h_bbo = [to_bbo_hand(hand) for hand in hands_str_nesw]
-    return f'https://www.bridgebase.com/tools/handviewer.html?d={dealer}&a={auction_bbo}&n={h_bbo[0]}&e={h_bbo[1]}&s={h_bbo[2]}&w={h_bbo[3]}&p={"".join(cards_played)}'
+    return f'https://www.bridgebase.com/tools/handviewer.html?d={dealer}&a=1SPPP&n={h_bbo[0]}&e={h_bbo[1]}&s={h_bbo[2]}&w={h_bbo[3]}&p={"".join(cards_played)}'
 
 def from_bbo_hand(bbo_hand):
     '''
@@ -57,31 +55,56 @@ SUIT_MASK = np.array([
 ], dtype=np.int32)
 
 def follow_suit(cards_softmax, own_cards, trick_suit, spades_broken, n_trick_cards):
+    """
+    Adjusts the legal card probabilities based on the rules of following suit and Spades being broken.
+
+    Args:
+        cards_softmax: Softmax probabilities for each card (batch_size x 52).
+        own_cards: Binary representation of the player's cards (batch_size x 52).
+        trick_suit: Binary representation of the suit being followed (batch_size x 4).
+        spades_broken: Boolean indicating whether Spades has been broken.
+        n_trick_cards: Number of cards already played in the current trick.
+
+    Returns:
+        Adjusted probabilities for legal cards (batch_size x 52).
+    """
     assert cards_softmax.shape[1] == 52
     assert own_cards.shape[1] == 52
     assert trick_suit.shape[1] == 4
     assert trick_suit.shape[0] == cards_softmax.shape[0]
     assert cards_softmax.shape[0] == own_cards.shape[0]
 
-    suit_defined = np.max(trick_suit, axis=1) > 0
-    trick_suit_i = np.argmax(trick_suit, axis=1)
+    suit_defined = np.max(trick_suit, axis=1) > 0  # Whether a suit is being followed
+    trick_suit_i = np.argmax(trick_suit, axis=1)  # Index of the suit being followed (0: Spades, 1: Hearts, etc.)
 
-    mask = (own_cards > 0).astype(np.int32)
+    mask = (own_cards > 0).astype(np.int32)  # Mask for cards the player owns
 
+    # Check if the player has cards of the required suit
     has_cards_of_suit = np.sum(mask * SUIT_MASK[trick_suit_i], axis=1) > 0
 
+    # Enforce following suit rules
     mask[suit_defined & has_cards_of_suit] *= SUIT_MASK[trick_suit_i[suit_defined & has_cards_of_suit]]
 
-    # If spades are not broken and it's the first card of the trick, spades cannot be played
-    ## DEBUG - REMOVING THIS CONDITION TO SEE IF IT IS WAS IS CAUSING EMPTY CANDIDATES IN SEARCH
-    ##if not spades_broken and n_trick_cards == 0:
-    ##    mask[:, 39:52] = 0  # Spades are in the range 39-51
+    # Handle Spades rules
+    if spades_broken:
+        # If Spades is broken, Spades can be played like any other suit
+        pass  # No additional restrictions needed
+    else:
+        # If Spades is not broken
+        if n_trick_cards == 0:
+            # If it's the first card of the trick, Spades cannot be played
+            mask[:, 0:13] = 0  # Spades are in the range 0-12
+        else:
+            # If the player cannot follow suit, they can play Spades, which will break Spades
+            cannot_follow_suit = ~has_cards_of_suit & suit_defined
+            mask[cannot_follow_suit, 0:13] = 1  # Allow Spades to be played
 
+    # Adjust probabilities for legal cards
     legal_cards_softmax = cards_softmax * mask
 
+    # Normalize probabilities
     s = np.sum(legal_cards_softmax, axis=1, keepdims=True)
-    s[s < 1e-9] = 1e-9
-    ## import pdb; pdb.set_trace()
+    s[s < 1e-9] = 1e-9  # Avoid division by zero
     return legal_cards_softmax / s
 
 def hands_bin_52_to_32(hands_np):

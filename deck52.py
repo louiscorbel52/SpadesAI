@@ -28,15 +28,16 @@ def random_deal():
 
     return ' '.join(map(hand_to_str, hands))
 
-def get_trick_winner_i(trick, strain_i):
+def get_trick_winner_i(trick):
+    ##import pdb; pdb.set_trace()
     trick_cards_suit = [card // 13 for card in trick]
 
-    is_trumped = any([suit_i == strain_i for suit_i in trick_cards_suit])
+    is_trumped = any([suit_i == 0 for suit_i in trick_cards_suit])
 
     highest_trump_i = 0
     highest_trump = 99
     for i in range(4):
-        if trick_cards_suit[i] == strain_i and trick[i] < highest_trump:
+        if trick_cards_suit[i] == 0 and trick[i] < highest_trump:
             highest_trump_i = i
             highest_trump = trick[i]
 
